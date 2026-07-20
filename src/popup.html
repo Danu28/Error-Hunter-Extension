@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Error Hunter</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="header">
+      <h1 class="title">Error Hunter</h1>
+      <div class="status-indicator" id="statusIndicator"></div>
+    </header>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="btn btn-start" id="btnStart">Start Monitoring</button>
+      <button class="btn btn-stop" id="btnStop" hidden>Stop Monitoring</button>
+      <button class="btn btn-clear" id="btnClear">Clear</button>
+      <button class="btn btn-export" id="btnExport">Export Report</button>
+    </div>
+
+    <!-- Filter tabs -->
+    <div class="filters" id="filters">
+      <button class="filter-btn active" data-filter="all">All</button>
+      <button class="filter-btn" data-filter="console">Console</button>
+      <button class="filter-btn" data-filter="network">Network</button>
+    </div>
+
+    <!-- Error count summary -->
+    <div class="summary" id="summary">
+      <span id="errorCount">0 errors</span>
+    </div>
+
+    <!-- Error list -->
+    <div class="error-list" id="errorList">
+      <div class="empty-state">No errors captured yet.<br>Click "Start Monitoring" to begin.</div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span>Errors persist across navigations until cleared.</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

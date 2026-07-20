@@ -1,0 +1,39 @@
+# ── Node.js ──
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# ── OS files ──
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# ── IDE / Editor ──
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.project
+.classpath
+.settings/
+
+# ── Environment ──
+.env
+.env.local
+.env.*.local
+
+# ── Development helpers (not part of source) ──
+serve-test.js
+
+# ── Dev loop artifacts (deleted before final push) ──
+.devloop/
