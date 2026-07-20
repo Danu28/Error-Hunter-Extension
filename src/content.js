@@ -1,24 +1,16 @@
 // Error Hunter - Content Script
 // Captures console errors, uncaught exceptions, unhandled rejections, and failed network requests
 
-console.log('[Error Hunter] Content script loaded at', window.location.href);
-
 let monitoring = false;
 
-// Store original implementations for cleanup
-const originals = {
-  consoleError: null
-};
+let originalConsoleError = null;
 
 // Listen for start/stop commands from service worker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('[Error Hunter] Content script received message:', message.action, 'from:', sender.id ? 'extension' : 'unknown');
   if (message.action === 'start') {
-    console.log('[Error Hunter] START message received - calling startMonitoring()');
     startMonitoring();
     sendResponse({ received: true });
   } else if (message.action === 'stop') {
-    console.log('[Error Hunter] STOP message received - calling stopMonitoring()');
     stopMonitoring();
     sendResponse({ received: true });
   }
@@ -28,13 +20,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // Send error to service worker
 function reportError(error) {
   if (!monitoring) {
-    console.log('[Error Hunter] reportError SKIPPED - monitoring is false');
     return;
   }
-  console.log('[Error Hunter] reportError - type:', error.type, 'message:', error.message?.substring(0, 100), 'url:', error.url?.substring(0, 80));
-  chrome.runtime.sendMessage({ action: 'new_error', error }).then(() => {
-    console.log('[Error Hunter] new_error message sent successfully');
-  }).catch((err) => {
+  chrome.runtime.sendMessage({ action: 'new_error', error }).catch((err) => {
     console.error('[Error Hunter] new_error sendMessage FAILED:', err.message);
   });
 }
@@ -45,48 +33,40 @@ function reportError(error) {
 // chrome.scripting.executeScript with world: "MAIN", which bypasses CSP.
 // The injected code dispatches CustomEvents that we listen for here.
 
-const pageWorldHandlers = { consoleError: null, windowError: null, unhandledRejection: null, networkError: null };
+let pageWorldHandler = null;
+
+const PAGE_WORLD_EVENTS = ['eh-console-error', 'eh-window-error', 'eh-unhandled-rejection', 'eh-network-error'];
 
 function addPageWorldListeners() {
-  if (pageWorldHandlers.consoleError) return; // already added
+  if (pageWorldHandler) return;
 
-  pageWorldHandlers.consoleError = (e) => { if (monitoring) { console.log('[Error Hunter] Page console.error intercepted via CustomEvent'); reportError(e.detail); } };
-  pageWorldHandlers.windowError = (e) => { if (monitoring) { console.log('[Error Hunter] Page window.error intercepted via CustomEvent'); reportError(e.detail); } };
-  pageWorldHandlers.unhandledRejection = (e) => { if (monitoring) reportError(e.detail); };
-  pageWorldHandlers.networkError = (e) => { if (monitoring) { console.log('[Error Hunter] Page network error intercepted via CustomEvent'); reportError(e.detail); } };
+  pageWorldHandler = (e) => { if (monitoring) reportError(e.detail); };
 
-  window.addEventListener('eh-console-error', pageWorldHandlers.consoleError);
-  window.addEventListener('eh-window-error', pageWorldHandlers.windowError);
-  window.addEventListener('eh-unhandled-rejection', pageWorldHandlers.unhandledRejection);
-  window.addEventListener('eh-network-error', pageWorldHandlers.networkError);
+  for (const name of PAGE_WORLD_EVENTS) {
+    window.addEventListener(name, pageWorldHandler);
+  }
 }
 
 function removePageWorldListeners() {
-  if (!pageWorldHandlers.consoleError) return;
+  if (!pageWorldHandler) return;
 
-  window.removeEventListener('eh-console-error', pageWorldHandlers.consoleError);
-  window.removeEventListener('eh-window-error', pageWorldHandlers.windowError);
-  window.removeEventListener('eh-unhandled-rejection', pageWorldHandlers.unhandledRejection);
-  window.removeEventListener('eh-network-error', pageWorldHandlers.networkError);
+  for (const name of PAGE_WORLD_EVENTS) {
+    window.removeEventListener(name, pageWorldHandler);
+  }
 
-  pageWorldHandlers.consoleError = null;
-  pageWorldHandlers.windowError = null;
-  pageWorldHandlers.unhandledRejection = null;
-  pageWorldHandlers.networkError = null;
+  pageWorldHandler = null;
 }
 
 // ── Console Error Interception ──
 function patchConsoleError() {
-  if (originals.consoleError) {
-    console.log('[Error Hunter] patchConsoleError - already patched, skipping');
+  if (originalConsoleError) {
     return;
   }
-  console.log('[Error Hunter] patchConsoleError - patching console.error');
-  originals.consoleError = console.error;
+  originalConsoleError = console.error;
 
   console.error = function (...args) {
     // Call original first
-    originals.consoleError.apply(console, args);
+    originalConsoleError.apply(console, args);
 
     const message = args.map(a => {
       if (a instanceof Error) return a.message;
@@ -107,9 +87,9 @@ function patchConsoleError() {
 }
 
 function unpatchConsoleError() {
-  if (originals.consoleError) {
-    console.error = originals.consoleError;
-    originals.consoleError = null;
+  if (originalConsoleError) {
+    console.error = originalConsoleError;
+    originalConsoleError = null;
   }
 }
 
@@ -125,7 +105,6 @@ function removeErrorListeners() {
 }
 
 function handleWindowError(event) {
-  console.log('[Error Hunter] Window error event caught:', event.message?.substring(0, 100), 'at', event.filename, 'line', event.lineno);
   reportError({
     type: 'console',
     message: event.message || 'Unknown error',
@@ -141,7 +120,6 @@ function handleUnhandledRejection(event) {
   const reason = event.reason;
   const message = reason?.message || reason?.toString() || 'Unhandled Promise rejection';
   const stack = reason?.stack || null;
-  console.log('[Error Hunter] Unhandled rejection caught:', message?.substring(0, 100));
 
   reportError({
     type: 'console',
@@ -160,11 +138,9 @@ function handleUnhandledRejection(event) {
 // ── Start / Stop ──
 function startMonitoring() {
   if (monitoring) {
-    console.log('[Error Hunter] startMonitoring called but already monitoring');
     return;
   }
   monitoring = true;
-  console.log('[Error Hunter] Monitoring STARTING...');
 
   patchConsoleError();
   addErrorListeners();
@@ -172,42 +148,31 @@ function startMonitoring() {
 
   // Ask service worker to inject page-world error capture via scripting API
   chrome.runtime.sendMessage({ action: 'inject_page_world' }).catch(() => {});
-
-  console.log('[Error Hunter] Monitoring started successfully - now capturing errors on:', window.location.href);
 }
 
 function stopMonitoring() {
   if (!monitoring) {
-    console.log('[Error Hunter] stopMonitoring called but not monitoring');
     return;
   }
   monitoring = false;
-  console.log('[Error Hunter] Monitoring STOPPING...');
 
   unpatchConsoleError();
   removeErrorListeners();
   removePageWorldListeners();
-  console.log('[Error Hunter] Monitoring stopped on:', window.location.href);
 }
 
 // Auto-start if service worker indicates monitoring is active
 (async function init() {
-  console.log('[Error Hunter] init() - checking monitoring status from SW');
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const response = await chrome.runtime.sendMessage({ action: 'get_status' });
-      console.log('[Error Hunter] init() attempt', attempt + 1, '- get_status response:', JSON.stringify(response));
       if (response && response.isMonitoring) {
-        console.log('[Error Hunter] init() - SW says monitoring is active, starting...');
         startMonitoring();
-      } else {
-        console.log('[Error Hunter] init() - SW says monitoring is NOT active');
       }
       return; // Success or valid response
     } catch (e) {
       console.warn('[Error Hunter] init() attempt', attempt + 1, '- get_status FAILED:', e.message);
       if (attempt < 2) {
-        console.log('[Error Hunter] init() - retrying in 500ms...');
         await new Promise(resolve => setTimeout(resolve, 500));
       } else {
         console.error('[Error Hunter] init() - ALL 3 attempts exhausted, giving up');

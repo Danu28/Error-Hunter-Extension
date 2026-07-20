@@ -1,7 +1,5 @@
 // Error Hunter - Popup Logic
 
-console.log('[Error Hunter] Popup script loaded at', new Date().toISOString());
-
 let errors = [];
 let currentFilter = 'all';
 
@@ -17,13 +15,10 @@ const filterBtns = document.querySelectorAll('.filter-btn');
 
 // ── Initialize ──
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('[Error Hunter] Popup DOMContentLoaded fired');
   loadState();
   setupEventListeners();
   // Refresh errors periodically while popup is open
-  console.log('[Error Hunter] Starting 2s refresh interval');
   setInterval(() => {
-    console.log('[Error Hunter] Interval refresh - polling SW');
     loadState();
   }, 2000);
 });
@@ -31,9 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ── Load state from service worker ──
 async function loadState() {
   try {
-    console.log('[Error Hunter] loadState - sending get_errors to SW');
     const response = await chrome.runtime.sendMessage({ action: 'get_errors' });
-    console.log('[Error Hunter] loadState - SW response:', JSON.stringify({ errorCount: (response?.errors || []).length, isMonitoring: response?.isMonitoring }));
     if (response) {
       errors = response.errors || [];
       updateUI(response.isMonitoring);
@@ -81,9 +74,7 @@ function setupEventListeners() {
 // ── Start Monitoring ──
 async function startMonitoring() {
   try {
-    console.log('[Error Hunter] startMonitoring - sending start_monitoring to SW');
     const response = await chrome.runtime.sendMessage({ action: 'start_monitoring' });
-    console.log('[Error Hunter] startMonitoring - response:', JSON.stringify(response));
     if (response && response.success) {
       updateUI(true);
     } else {
@@ -97,9 +88,7 @@ async function startMonitoring() {
 // ── Stop Monitoring ──
 async function stopMonitoring() {
   try {
-    console.log('[Error Hunter] stopMonitoring - sending stop_monitoring to SW');
     const response = await chrome.runtime.sendMessage({ action: 'stop_monitoring' });
-    console.log('[Error Hunter] stopMonitoring - response:', JSON.stringify(response));
     if (response && response.success) {
       errors = [];
       updateUI(false);
@@ -112,9 +101,7 @@ async function stopMonitoring() {
 // ── Clear Errors ──
 async function clearErrors() {
   try {
-    console.log('[Error Hunter] clearErrors - sending clear_errors to SW');
     const response = await chrome.runtime.sendMessage({ action: 'clear_errors' });
-    console.log('[Error Hunter] clearErrors - response:', JSON.stringify(response));
     if (response && response.success) {
       errors = [];
       renderErrors();

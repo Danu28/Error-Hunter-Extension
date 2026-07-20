@@ -1,58 +1,45 @@
 // Error Hunter - Service Worker
 // Background script managing badge, error storage, and messaging
 
-console.log('[Error Hunter] Service Worker starting at', new Date().toISOString());
-
 const STORAGE_KEY = 'error_hunter_errors';
 const STATUS_KEY = 'error_hunter_active';
 
 // Initialize state
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[Error Hunter] SW onInstalled fired - initializing state');
   chrome.storage.session.set({ [STATUS_KEY]: false });
   chrome.action.setBadgeBackgroundColor({ color: '#dc3545' });
 });
 
 // Listen for messages from content script and popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  const senderInfo = sender.tab ? `tab:${sender.tab.id}` : (sender.id ? `ext:${sender.id}` : 'unknown');
-  console.log('[Error Hunter] SW received message:', message.action, 'from', senderInfo, 'at', new Date().toISOString());
   switch (message.action) {
     case 'new_error':
-      console.log('[Error Hunter] SW handling new_error - type:', message.error?.type, 'msg:', message.error?.message?.substring(0, 80));
       handleNewError(message.error, sender).then(() => {
-        console.log('[Error Hunter] SW new_error handler completed, sending response');
         sendResponse({});
       });
       return true;
 
     case 'get_errors':
-      console.log('[Error Hunter] SW handling get_errors');
       handleGetErrors(sendResponse);
       return true; // Keep channel open for async response
 
     case 'get_status':
-      console.log('[Error Hunter] SW handling get_status');
       handleGetStatus(sendResponse);
       return true;
 
     case 'start_monitoring':
-      console.log('[Error Hunter] SW handling start_monitoring');
       handleStartMonitoring(sendResponse);
       return true;
 
     case 'stop_monitoring':
-      console.log('[Error Hunter] SW handling stop_monitoring');
       handleStopMonitoring(sendResponse);
       return true;
 
     case 'inject_page_world':
-      console.log('[Error Hunter] SW handling inject_page_world');
       handleInjectPageWorld(sender, sendResponse);
       return true;
 
     case 'clear_errors':
-      console.log('[Error Hunter] SW handling clear_errors');
       handleClearErrors(sendResponse);
       return true;
 
@@ -66,7 +53,6 @@ async function handleNewError(error, sender) {
   try {
     const result = await chrome.storage.session.get(STORAGE_KEY);
     const errors = result[STORAGE_KEY] || [];
-    console.log('[Error Hunter] handleNewError - current count:', errors.length, 'storage key:', STORAGE_KEY);
 
     // Enrich error with tab info if available
     if (sender && sender.tab) {
@@ -76,7 +62,6 @@ async function handleNewError(error, sender) {
 
     errors.push(error);
     await chrome.storage.session.set({ [STORAGE_KEY]: errors });
-    console.log('[Error Hunter] handleNewError - stored error, new count:', errors.length);
     await updateBadge(errors.length);
   } catch (err) {
     console.error('[Error Hunter] Failed to store error:', err);
@@ -87,8 +72,6 @@ async function handleNewError(error, sender) {
 async function handleGetErrors(sendResponse) {
   try {
     const result = await chrome.storage.session.get([STORAGE_KEY, STATUS_KEY]);
-    const errorCount = (result[STORAGE_KEY] || []).length;
-    console.log('[Error Hunter] handleGetErrors - returning', errorCount, 'errors, isMonitoring:', result[STATUS_KEY] || false);
     sendResponse({
       errors: result[STORAGE_KEY] || [],
       isMonitoring: result[STATUS_KEY] || false
@@ -103,7 +86,6 @@ async function handleGetErrors(sendResponse) {
 async function handleGetStatus(sendResponse) {
   try {
     const result = await chrome.storage.session.get(STATUS_KEY);
-    console.log('[Error Hunter] handleGetStatus - isMonitoring:', result[STATUS_KEY] || false);
     sendResponse({ isMonitoring: result[STATUS_KEY] || false });
   } catch (err) {
     console.error('[Error Hunter] handleGetStatus FAILED:', err.message);
@@ -114,25 +96,21 @@ async function handleGetStatus(sendResponse) {
 // Start monitoring: inject content scripts into all tabs, set flag
 async function handleStartMonitoring(sendResponse) {
   try {
-    console.log('[Error Hunter] handleStartMonitoring - setting STATUS_KEY to true');
     await chrome.storage.session.set({ [STATUS_KEY]: true });
 
     // Broadcast start to all tabs with content scripts
     const tabs = await chrome.tabs.query({});
-    console.log('[Error Hunter] handleStartMonitoring - found', tabs.length, 'tabs, broadcasting start');
     let sentCount = 0;
     for (const tab of tabs) {
       if (tab.url && tab.url.startsWith('http')) {
         try {
           await chrome.tabs.sendMessage(tab.id, { action: 'start' });
           sentCount++;
-          console.log('[Error Hunter] handleStartMonitoring - sent start to tab', tab.id, tab.url?.substring(0, 80));
         } catch (e) {
-          console.log('[Error Hunter] handleStartMonitoring - tab', tab.id, 'not ready:', e.message);
+          // Tab not ready, skip
         }
       }
     }
-    console.log('[Error Hunter] handleStartMonitoring - broadcast to', sentCount, 'tabs successfully');
 
     sendResponse({ success: true });
   } catch (err) {
@@ -144,14 +122,12 @@ async function handleStartMonitoring(sendResponse) {
 // Stop monitoring: clear badge, clear errors, send stop to tabs
 async function handleStopMonitoring(sendResponse) {
   try {
-    console.log('[Error Hunter] handleStopMonitoring - stopping monitoring');
     await chrome.storage.session.set({ [STATUS_KEY]: false });
     await chrome.storage.session.set({ [STORAGE_KEY]: [] });
     await chrome.action.setBadgeText({ text: '' });
 
     // Broadcast stop to all tabs
     const tabs = await chrome.tabs.query({});
-    console.log('[Error Hunter] handleStopMonitoring - broadcasting stop to', tabs.length, 'tabs');
     for (const tab of tabs) {
       if (tab.url && tab.url.startsWith('http')) {
         try {
@@ -163,7 +139,6 @@ async function handleStopMonitoring(sendResponse) {
     }
 
     sendResponse({ success: true });
-    console.log('[Error Hunter] handleStopMonitoring - completed');
   } catch (err) {
     console.error('[Error Hunter] handleStopMonitoring FAILED:', err.message);
     sendResponse({ success: false, error: err.message });
@@ -173,7 +148,6 @@ async function handleStopMonitoring(sendResponse) {
 // Clear errors without stopping monitoring
 async function handleClearErrors(sendResponse) {
   try {
-    console.log('[Error Hunter] handleClearErrors - clearing errors');
     await chrome.storage.session.set({ [STORAGE_KEY]: [] });
     await chrome.action.setBadgeText({ text: '' });
     sendResponse({ success: true });
@@ -189,17 +163,14 @@ async function handleClearErrors(sendResponse) {
 async function handleInjectPageWorld(sender, sendResponse) {
   try {
     if (!sender.tab) {
-      console.log('[Error Hunter] handleInjectPageWorld - no sender tab, skipping');
       sendResponse({ success: false, error: 'no tab' });
       return;
     }
-    console.log('[Error Hunter] handleInjectPageWorld - injecting into tab', sender.tab.id);
     await chrome.scripting.executeScript({
       target: { tabId: sender.tab.id },
       world: "MAIN",
       func: injectPageWorldErrorCapture,
     });
-    console.log('[Error Hunter] handleInjectPageWorld - injected successfully');
     sendResponse({ success: true });
   } catch (err) {
     console.error('[Error Hunter] handleInjectPageWorld FAILED:', err.message);
@@ -347,7 +318,6 @@ function injectPageWorldErrorCapture() {
 // Update the badge with current error count
 async function updateBadge(count) {
   const text = count > 0 ? String(count) : '';
-  console.log('[Error Hunter] updateBadge - setting badge to:', text || '(empty)');
   await chrome.action.setBadgeText({ text: text });
   if (count > 0) {
     await chrome.action.setBadgeBackgroundColor({ color: '#dc3545' });
@@ -360,7 +330,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     try {
       const result = await chrome.storage.session.get(STATUS_KEY);
       if (result[STATUS_KEY]) {
-        console.log('[Error Hunter] tabs.onUpdated - tab', tabId, 'completed, sending start (monitoring active)');
         await chrome.tabs.sendMessage(tabId, { action: 'start' });
       }
     } catch (e) {
