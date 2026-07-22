@@ -30,12 +30,6 @@ function reportError(error) {
   });
 }
 
-// ── Page-World Error Capture (via chrome.scripting.executeScript) ──
-// MV3 content scripts run in an isolated world. To patch console.error in the
-// page's own context, we ask the service worker to inject code via
-// chrome.scripting.executeScript with world: "MAIN", which bypasses CSP.
-// The injected code dispatches CustomEvents that we listen for here.
-
 let pageWorldHandler = null;
 
 const PAGE_WORLD_EVENTS = ['eh-console-error', 'eh-console-warn', 'eh-window-error', 'eh-unhandled-rejection', 'eh-network-error'];
@@ -144,7 +138,7 @@ function removeErrorListeners() {
 
 function handleWindowError(event) {
   reportError({
-    type: 'console',
+    type: 'exception',
     message: event.message || 'Unknown error',
     stack: event.error?.stack || null,
     url: event.filename || window.location.href,
@@ -160,18 +154,13 @@ function handleUnhandledRejection(event) {
   const stack = reason?.stack || null;
 
   reportError({
-    type: 'console',
+    type: 'unhandledrejection',
     message,
     stack,
     url: window.location.href,
     timestamp: Date.now()
   });
 }
-
-// ── Fetch and XHR interception moved to page-world injection ──
-// See injectPageWorldErrorCapture() in service-worker.js which patches
-// window.fetch and XMLHttpRequest.prototype in the MAIN world via
-// chrome.scripting.executeScript({ world: "MAIN" }).
 
 // ── Start / Stop ──
 function startMonitoring() {

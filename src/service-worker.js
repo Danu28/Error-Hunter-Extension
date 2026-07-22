@@ -176,9 +176,6 @@ async function handleDeleteError(message, sendResponse) {
   }
 }
 
-// ── Inject page-world error capture via scripting API ──
-// This bypasses CSP because the injection happens at the extension level,
-// not through DOM <script> element insertion.
 async function handleInjectPageWorld(sender, sendResponse) {
   try {
     if (!sender.tab) {
@@ -197,12 +194,18 @@ async function handleInjectPageWorld(sender, sendResponse) {
   }
 }
 
-// Self-contained function that runs in the page's MAIN world.
-// This is serialized via toString() by executeScript, so it MUST NOT
-// reference any outer scope variables or imports.
+// Runs in page's MAIN world via executeScript (serialized via toString)
 function injectPageWorldErrorCapture() {
   if (window.__eh_patched) return;
   window.__eh_patched = true;
+
+  // Helper to reduce duplication in detail object construction
+  function makeDetail(type, extra) {
+    extra.type = type;
+    if (extra.url === undefined) extra.url = location.href;
+    extra.timestamp = Date.now();
+    return extra;
+  }
 
   var _origConsoleError = console.error;
 
@@ -227,7 +230,7 @@ function injectPageWorldErrorCapture() {
     }
 
     window.dispatchEvent(new CustomEvent('eh-console-error', {
-      detail: { type: 'console', message: message, stack: stack, url: location.href, timestamp: Date.now() }
+      detail: makeDetail('console', { message: message, stack: stack })
     }));
   };
 
@@ -249,21 +252,19 @@ function injectPageWorldErrorCapture() {
     }
 
     window.dispatchEvent(new CustomEvent('eh-console-warn', {
-      detail: { type: 'console', level: 'warn', message: message, stack: stack, url: location.href, timestamp: Date.now() }
+      detail: makeDetail('console', { level: 'warn', message: message, stack: stack })
     }));
   };
 
   window.addEventListener('error', function(e) {
     window.dispatchEvent(new CustomEvent('eh-window-error', {
-      detail: {
-        type: 'console',
+      detail: makeDetail('exception', {
         message: e.message || 'Unknown error',
         stack: e.error ? e.error.stack : null,
         url: e.filename || location.href,
         line: e.lineno,
-        column: e.colno,
-        timestamp: Date.now()
-      }
+        column: e.colno
+      })
     }));
   });
 
@@ -272,11 +273,10 @@ function injectPageWorldErrorCapture() {
     var message = reason && reason.message ? reason.message : String(reason);
     var stack = reason && reason.stack ? reason.stack : null;
     window.dispatchEvent(new CustomEvent('eh-unhandled-rejection', {
-      detail: { type: 'console', message: message, stack: stack, url: location.href, timestamp: Date.now() }
+      detail: makeDetail('unhandledrejection', { message: message, stack: stack })
     }));
   });
 
-  // ── Fetch interception ──
   var _origFetch = window.fetch;
   window.fetch = function() {
     var args = arguments;
@@ -305,36 +305,31 @@ function injectPageWorldErrorCapture() {
         respBodyPromise.then(function(text) {
           var preview = text ? text.substring(0, 500) : '';
           window.dispatchEvent(new CustomEvent('eh-network-error', {
-            detail: {
-              type: 'network',
+            detail: makeDetail('network', {
               message: 'Fetch ' + method + ' ' + url + ' returned ' + response.status + ' ' + response.statusText,
               url: url, method: method, status: response.status, statusText: response.statusText,
-              timestamp: Date.now(),
               requestBody: requestBody,
               responseBody: preview,
               duration: Date.now() - startTime
-            }
+            })
           }));
         });
       }
       return response;
     }).catch(function(err) {
       window.dispatchEvent(new CustomEvent('eh-network-error', {
-        detail: {
-          type: 'network',
+        detail: makeDetail('network', {
           message: 'Fetch ' + method + ' ' + url + ' failed: ' + err.message,
           url: url, method: method, status: 0, statusText: 'Network Failure',
-          timestamp: Date.now(),
           requestBody: requestBody,
           responseBody: err.message,
           duration: Date.now() - startTime
-        }
+        })
       }));
       throw err;
     });
   };
 
-  // ── XHR interception ──
   var _origXHROpen = XMLHttpRequest.prototype.open;
   var _origXHRSend = XMLHttpRequest.prototype.send;
 
@@ -353,31 +348,27 @@ function injectPageWorldErrorCapture() {
         var bodyText = xhr.responseText || '';
         var preview = bodyText.substring(0, 500);
         window.dispatchEvent(new CustomEvent('eh-network-error', {
-          detail: {
-            type: 'network',
+          detail: makeDetail('network', {
             message: 'XHR ' + xhr._eh_method + ' ' + xhr._eh_url + ' returned ' + xhr.status + ' ' + xhr.statusText,
             url: xhr._eh_url, method: xhr._eh_method,
             status: xhr.status, statusText: xhr.statusText,
-            timestamp: Date.now(),
             requestBody: requestBody,
             responseBody: preview,
             duration: Date.now() - startTime
-          }
+          })
         }));
       }
     });
     xhr.addEventListener('error', function() {
       window.dispatchEvent(new CustomEvent('eh-network-error', {
-        detail: {
-          type: 'network',
+        detail: makeDetail('network', {
           message: 'XHR ' + xhr._eh_method + ' ' + xhr._eh_url + ' failed: Network error',
           url: xhr._eh_url, method: xhr._eh_method,
           status: 0, statusText: 'Network Failure',
-          timestamp: Date.now(),
           requestBody: requestBody,
           responseBody: '',
           duration: Date.now() - startTime
-        }
+        })
       }));
     });
     return _origXHRSend.apply(xhr, arguments);

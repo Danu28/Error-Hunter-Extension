@@ -4,6 +4,7 @@ let errors = [];
 let currentFilter = 'all';
 let searchText = '';
 let prevErrorCount = 0;
+let lastRenderKey = '';
 let expandedSet = new Set();
 let checkedSet = new Set();
 
@@ -197,7 +198,7 @@ function renderErrors() {
   const filtered = getFilteredErrors();
 
   // Build summary with breakdown
-  const consoleCount = filtered.filter(e => e.type === 'console' && e.level !== 'warn').length;
+  const consoleCount = filtered.filter(e => (e.type === 'console' || e.type === 'exception' || e.type === 'unhandledrejection') && e.level !== 'warn').length;
   const warnCount = filtered.filter(e => e.level === 'warn').length;
   const networkCount = filtered.filter(e => e.type === 'network').length;
   const parts = [];
@@ -207,6 +208,12 @@ function renderErrors() {
   let summaryText = `${filtered.length} error${filtered.length !== 1 ? 's' : ''}`;
   if (parts.length > 0) summaryText += ` (${parts.join(', ')})`;
   errorCount.textContent = summaryText;
+
+  // Skip DOM rebuild if filtered list hasn't changed
+  const lastTimestamp = filtered.length > 0 ? filtered[filtered.length - 1].timestamp : '';
+  const key = filtered.length + ':' + consoleCount + ':' + warnCount + ':' + networkCount + ':' + lastTimestamp;
+  if (key === lastRenderKey) return;
+  lastRenderKey = key;
 
   if (filtered.length === 0) {
     errorList.innerHTML = `<div class="empty-state">No errors captured.</div>`;
@@ -226,20 +233,18 @@ function renderErrors() {
 
 // ── Filter errors based on current filter and search text ──
 function getFilteredErrors() {
-  let filtered = errors;
-  if (currentFilter === 'warning') filtered = filtered.filter(e => e.level === 'warn');
-  else if (currentFilter === 'console') filtered = filtered.filter(e => e.type === 'console' && e.level !== 'warn');
-  else if (currentFilter !== 'all') filtered = filtered.filter(e => e.type === currentFilter);
+  return errors.filter(e => {
+    // Type filter — single pass
+    if (currentFilter === 'warning' && e.level !== 'warn') return false;
+    if (currentFilter === 'console' && e.type !== 'console' && e.type !== 'exception' && e.type !== 'unhandledrejection') return false;
+    if (currentFilter !== 'all' && currentFilter !== 'warning' && currentFilter !== 'console' && e.type !== currentFilter) return false;
 
-  if (searchText) {
-    filtered = filtered.filter(e =>
-      (e.message && e.message.toLowerCase().includes(searchText)) ||
-      (e.url && e.url.toLowerCase().includes(searchText)) ||
-      (e.status != null && String(e.status).includes(searchText))
-    );
-  }
-
-  return filtered;
+    // Search filter
+    if (!searchText) return true;
+    return (e.message && e.message.toLowerCase().includes(searchText)) ||
+           (e.url && e.url.toLowerCase().includes(searchText)) ||
+           (e.status != null && String(e.status).includes(searchText));
+  });
 }
 
 // ── Build HTML for a single error item ──
@@ -249,9 +254,18 @@ function buildErrorItem(error, index) {
   if (error.level === 'warn') {
     typeClass = 'warning';
     typeLabel = 'Warning';
+  } else if (error.type === 'exception') {
+    typeClass = 'console';
+    typeLabel = 'Exception';
+  } else if (error.type === 'unhandledrejection') {
+    typeClass = 'console';
+    typeLabel = 'Rejection';
+  } else if (error.type === 'network') {
+    typeClass = 'network';
+    typeLabel = 'HTTP Error';
   } else {
-    typeClass = error.type === 'console' ? 'console' : 'network';
-    typeLabel = error.type === 'console' ? 'JS Error' : 'HTTP Error';
+    typeClass = 'console';
+    typeLabel = 'JS Error';
   }
 
   let metaHtml = '';
@@ -319,8 +333,8 @@ function buildErrorItem(error, index) {
     `;
   }
 
-  // Stack trace for console errors
-  if (error.type === 'console' && error.stack) {
+  // Stack trace for JS errors
+  if ((error.type === 'console' || error.type === 'exception' || error.type === 'unhandledrejection') && error.stack) {
     detailsHtml += `
       <div class="error-details-section">
         <div class="error-details-label">Stack Trace</div>
@@ -411,14 +425,17 @@ async function copyErrorToClipboard(index, btn) {
 }
 
 function formatErrorForClipboard(error) {
-  const typeLabel = error.type === 'console' ? 'JS Error (console)' : 'HTTP Error (network)';
+  const typeLabel = error.type === 'console' ? 'JS Error (console)' :
+    error.type === 'exception' ? 'Exception' :
+    error.type === 'unhandledrejection' ? 'Unhandled Rejection' :
+    'HTTP Error (network)';
   const lines = [
     `Error Type: ${typeLabel}`,
     `Message: ${error.message}`,
     `Time: ${new Date(error.timestamp).toLocaleString()}`,
   ];
   if (error.url) lines.push(`URL: ${error.url}`);
-  if (error.type === 'console' && error.stack) lines.push(`Stack Trace:\n${error.stack}`);
+  if ((error.type === 'console' || error.type === 'exception' || error.type === 'unhandledrejection') && error.stack) lines.push(`Stack Trace:\n${error.stack}`);
   if (error.type === 'network') {
     if (error.method) lines.push(`Method: ${error.method}`);
     if (error.status) lines.push(`Status: ${error.status} ${error.statusText || ''}`);
@@ -441,12 +458,15 @@ function exportReport() {
 
   const now = new Date();
   const timestamp = now.toLocaleString();
-  const consoleCount = filtered.filter(e => e.type === 'console').length;
+  const consoleCount = filtered.filter(e => e.type === 'console' || e.type === 'exception' || e.type === 'unhandledrejection').length;
   const networkCount = filtered.filter(e => e.type === 'network').length;
 
   let rowsHtml = '';
   filtered.forEach((error, i) => {
-    const typeLabel = error.type === 'console' ? 'JS Error' : 'HTTP Error';
+    const typeLabel = error.type === 'console' ? 'JS Error' :
+      error.type === 'exception' ? 'Exception' :
+      error.type === 'unhandledrejection' ? 'Rejection' :
+      'HTTP Error';
     const time = new Date(error.timestamp).toLocaleString();
     rowsHtml += `<tr>
       <td>${i + 1}</td>
