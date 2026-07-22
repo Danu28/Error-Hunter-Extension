@@ -369,6 +369,19 @@ body {
   line-height: 1.4;
 }
 
+.count-badge {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  background-color: rgba(220, 53, 69, 0.2);
+  color: var(--accent-red);
+  margin-left: 4px;
+  vertical-align: middle;
+  cursor: help;
+}
+
 .error-meta {
   display: flex;
   flex-wrap: wrap;

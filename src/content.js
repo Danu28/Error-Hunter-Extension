@@ -5,6 +5,12 @@ let monitoring = false;
 
 let originalConsoleError = null;
 let originalConsoleWarn = null;
+let originalConsoleLog = null;
+let originalConsoleDebug = null;
+let originalConsoleInfo = null;
+
+// Ring buffer for console log breadcrumbs (last 5 entries)
+let logBreadcrumbs = [];
 
 // Listen for start/stop commands from service worker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -18,16 +24,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true; // Keep channel open
 });
 
-// Send error to service worker
+// Send error to service worker (attaches log breadcrumbs)
 function reportError(error) {
   if (!monitoring) {
     return;
   }
+  error.logs = logBreadcrumbs.slice();
   chrome.runtime.sendMessage({ action: 'new_error', error }).catch((err) => {
     if (err.message.includes('Extension context invalidated')) {
       stopMonitoring();
     }
   });
+}
+
+// Push a log entry to the ring buffer (max 5)
+function pushLog(message) {
+  logBreadcrumbs.push({ message: message, timestamp: Date.now() });
+  if (logBreadcrumbs.length > 5) {
+    logBreadcrumbs.shift();
+  }
 }
 
 let pageWorldHandler = null;
@@ -102,6 +117,70 @@ function patchConsoleWarn() { patchConsole('warn', '(warning) ', 'warn'); }
 function unpatchConsoleError() { unpatchConsole('error'); }
 function unpatchConsoleWarn() { unpatchConsole('warn'); }
 
+// ── Console Log Breadcrumb Interception ──
+function patchConsoleLog() {
+  if (originalConsoleLog) return;
+  originalConsoleLog = console.log;
+  console.log = function (...args) {
+    originalConsoleLog.apply(console, args);
+    const msg = args.map(a => {
+      if (a instanceof Error) return a.message;
+      if (typeof a === 'object') { try { return JSON.stringify(a); } catch (e) { return String(a); } }
+      return String(a);
+    }).join(' ');
+    pushLog(msg);
+  };
+}
+
+function unpatchConsoleLog() {
+  if (originalConsoleLog) {
+    console.log = originalConsoleLog;
+    originalConsoleLog = null;
+  }
+}
+
+function patchConsoleDebug() {
+  if (originalConsoleDebug) return;
+  originalConsoleDebug = console.debug;
+  console.debug = function (...args) {
+    originalConsoleDebug.apply(console, args);
+    const msg = args.map(a => {
+      if (a instanceof Error) return a.message;
+      if (typeof a === 'object') { try { return JSON.stringify(a); } catch (e) { return String(a); } }
+      return String(a);
+    }).join(' ');
+    pushLog('(debug) ' + msg);
+  };
+}
+
+function unpatchConsoleDebug() {
+  if (originalConsoleDebug) {
+    console.debug = originalConsoleDebug;
+    originalConsoleDebug = null;
+  }
+}
+
+function patchConsoleInfo() {
+  if (originalConsoleInfo) return;
+  originalConsoleInfo = console.info;
+  console.info = function (...args) {
+    originalConsoleInfo.apply(console, args);
+    const msg = args.map(a => {
+      if (a instanceof Error) return a.message;
+      if (typeof a === 'object') { try { return JSON.stringify(a); } catch (e) { return String(a); } }
+      return String(a);
+    }).join(' ');
+    pushLog('(info) ' + msg);
+  };
+}
+
+function unpatchConsoleInfo() {
+  if (originalConsoleInfo) {
+    console.info = originalConsoleInfo;
+    originalConsoleInfo = null;
+  }
+}
+
 // ── Uncaught Exception Interception ──
 function addErrorListeners() {
   window.addEventListener('error', handleWindowError);
@@ -145,9 +224,13 @@ function startMonitoring() {
     return;
   }
   monitoring = true;
+  logBreadcrumbs = [];
 
   patchConsoleError();
   patchConsoleWarn();
+  patchConsoleLog();
+  patchConsoleDebug();
+  patchConsoleInfo();
   addErrorListeners();
   addPageWorldListeners();
 
@@ -167,6 +250,9 @@ function stopMonitoring() {
 
   unpatchConsoleError();
   unpatchConsoleWarn();
+  unpatchConsoleLog();
+  unpatchConsoleDebug();
+  unpatchConsoleInfo();
   removeErrorListeners();
   removePageWorldListeners();
 }

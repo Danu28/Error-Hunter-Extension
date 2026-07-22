@@ -372,6 +372,37 @@ function buildErrorItem(error, index) {
     }
   }
 
+  // Count badge for deduplicated errors
+  let countBadge = '';
+  if (error.count && error.count > 1) {
+    countBadge = ` <span class="count-badge" title="${error.count} occurrences">[×${error.count}]</span>`;
+  }
+
+  // Occurrences in details
+  if (error.count && error.count > 1) {
+    detailsHtml += `
+      <div class="error-details-section">
+        <div class="error-details-label">Occurrences</div>
+        <div class="error-details-content">${error.count}</div>
+      </div>
+    `;
+  }
+
+  // Console log breadcrumbs in details
+  if (error.logs && error.logs.length > 0) {
+    let logsHtml = '';
+    for (var i = 0; i < error.logs.length; i++) {
+      var log = error.logs[i];
+      logsHtml += '<div>' + escapeHtml(new Date(log.timestamp).toLocaleTimeString()) + ' — ' + escapeHtml(log.message) + '</div>';
+    }
+    detailsHtml += `
+      <div class="error-details-section">
+        <div class="error-details-label">Console Logs (last ${error.logs.length})</div>
+        <div class="error-details-content">${logsHtml}</div>
+      </div>
+    `;
+  }
+
   const origIndex = errors.indexOf(error);
   const expanded = expandedSet.has(origIndex) ? ' expanded' : '';
   const checked = checkedSet.has(origIndex) ? ' checked' : '';
@@ -382,7 +413,7 @@ function buildErrorItem(error, index) {
         <input type="checkbox" class="error-checkbox" data-index="${origIndex}"${checked}>
         <span class="error-type-badge ${typeClass}">${typeLabel}</span>
         <div class="error-main">
-          <div class="error-message">${escapeHtml(error.message)}</div>
+          <div class="error-message">${escapeHtml(error.message)}${countBadge}</div>
           <div class="error-meta">${metaHtml}</div>
         </div>
         <button class="delete-btn" data-index="${errors.indexOf(error)}" title="Delete error">✕</button>
@@ -416,6 +447,7 @@ function formatErrorForClipboard(error) {
     `Message: ${error.message}`,
     `Time: ${new Date(error.timestamp).toLocaleString()}`,
   ];
+  if (error.count && error.count > 1) lines.push(`Occurrences: ${error.count}`);
   if (error.url) lines.push(`URL: ${error.url}`);
   if ((error.type === 'console' || error.type === 'exception' || error.type === 'unhandledrejection') && error.stack) lines.push(`Stack Trace:\n${error.stack}`);
   if (error.type === 'network') {
@@ -424,6 +456,12 @@ function formatErrorForClipboard(error) {
     if (error.duration) lines.push(`Duration: ${error.duration}ms`);
     if (error.requestBody) lines.push(`Request Body: ${error.requestBody.substring(0, 200)}`);
     if (error.responseBody) lines.push(`Response Body: ${error.responseBody.substring(0, 200)}`);
+  }
+  if (error.logs && error.logs.length > 0) {
+    lines.push(`Console Logs (last ${error.logs.length}):`);
+    for (var i = 0; i < error.logs.length; i++) {
+      lines.push(`  [${new Date(error.logs[i].timestamp).toLocaleTimeString()}] ${error.logs[i].message}`);
+    }
   }
   return lines.join('\n');
 }

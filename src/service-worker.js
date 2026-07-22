@@ -64,7 +64,20 @@ async function handleNewError(error, sender) {
       error.tabUrl = sender.tab.url;
     }
 
-    errors.push(error);
+    // Deduplicate: if same type + message + url exists, increment count
+    const existing = errors.find(e =>
+      e.type === error.type &&
+      e.message === error.message &&
+      e.url === error.url
+    );
+    if (existing) {
+      existing.count = (existing.count || 1) + 1;
+      existing.timestamp = error.timestamp; // update to latest occurrence
+    } else {
+      error.count = 1;
+      errors.push(error);
+    }
+
     await chrome.storage.session.set({ [STORAGE_KEY]: errors });
     await updateBadge(errors.length);
   } catch (err) {
@@ -137,13 +150,18 @@ async function handleClearErrors(sendResponse) {
   }
 }
 
-// Delete a single error by index
+// Delete a single error by index (decrement count or remove)
 async function handleDeleteError(message, sendResponse) {
   try {
     const result = await chrome.storage.session.get(STORAGE_KEY);
     const errors = result[STORAGE_KEY] || [];
     if (message.index >= 0 && message.index < errors.length) {
-      errors.splice(message.index, 1);
+      const err = errors[message.index];
+      if (err.count && err.count > 1) {
+        err.count--;
+      } else {
+        errors.splice(message.index, 1);
+      }
       await chrome.storage.session.set({ [STORAGE_KEY]: errors });
       await updateBadge(errors.length);
     }
@@ -177,11 +195,20 @@ function injectPageWorldErrorCapture() {
   if (window.__eh_patched) return;
   window.__eh_patched = true;
 
+  // Ring buffer for console log breadcrumbs (last 5 entries)
+  var __eh_logs = [];
+
+  function __eh_pushLog(msg) {
+    __eh_logs.push({ message: msg, timestamp: Date.now() });
+    if (__eh_logs.length > 5) __eh_logs.shift();
+  }
+
   // Helper to reduce duplication in detail object construction
   function makeDetail(type, extra) {
     extra.type = type;
     if (extra.url === undefined) extra.url = location.href;
     extra.timestamp = Date.now();
+    extra.logs = __eh_logs.slice();
     return extra;
   }
 
@@ -232,6 +259,45 @@ function injectPageWorldErrorCapture() {
     window.dispatchEvent(new CustomEvent('eh-console-warn', {
       detail: makeDetail('console', { level: 'warn', message: message, stack: stack })
     }));
+  };
+
+  var _origConsoleLog = console.log;
+
+  console.log = function() {
+    _origConsoleLog.apply(console, arguments);
+    var args = Array.prototype.slice.call(arguments);
+    var message = args.map(function(a) {
+      if (a instanceof Error) return a.message;
+      if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
+      return String(a);
+    }).join(' ');
+    __eh_pushLog(message);
+  };
+
+  var _origConsoleDebug = console.debug;
+
+  console.debug = function() {
+    _origConsoleDebug.apply(console, arguments);
+    var args = Array.prototype.slice.call(arguments);
+    var message = args.map(function(a) {
+      if (a instanceof Error) return a.message;
+      if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
+      return String(a);
+    }).join(' ');
+    __eh_pushLog('(debug) ' + message);
+  };
+
+  var _origConsoleInfo = console.info;
+
+  console.info = function() {
+    _origConsoleInfo.apply(console, arguments);
+    var args = Array.prototype.slice.call(arguments);
+    var message = args.map(function(a) {
+      if (a instanceof Error) return a.message;
+      if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
+      return String(a);
+    }).join(' ');
+    __eh_pushLog('(info) ' + message);
   };
 
   window.addEventListener('error', function(e) {
@@ -367,14 +433,50 @@ async function broadcastToTabs(action) {
   }
 }
 
-// Update the badge with current error count
+// Pick badge color based on most severe error type in storage
+function getBadgeColor(errors) {
+  for (const e of errors) {
+    if (e.type === 'exception' || e.type === 'unhandledrejection') {
+      return '#dc3545'; // red
+    }
+  }
+  for (const e of errors) {
+    if (e.type === 'console' && e.level === 'warn') {
+      return '#f0ad4e'; // orange
+    }
+  }
+  for (const e of errors) {
+    if (e.type === 'network') {
+      return '#3794ff'; // blue
+    }
+  }
+  return '#dc3545'; // default red
+}
+
+// Update the badge with current error count and color
 async function updateBadge(count) {
   const text = count > 0 ? String(count) : '';
   await chrome.action.setBadgeText({ text: text });
   if (count > 0) {
-    await chrome.action.setBadgeBackgroundColor({ color: '#dc3545' });
+    const result = await chrome.storage.session.get(STORAGE_KEY);
+    const errors = result[STORAGE_KEY] || [];
+    const color = getBadgeColor(errors);
+    await chrome.action.setBadgeBackgroundColor({ color: color });
   }
 }
+
+// Listen for keyboard shortcut to toggle monitoring
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command === 'toggle-monitoring') {
+    const result = await chrome.storage.session.get(STATUS_KEY);
+    const isActive = result[STATUS_KEY] || false;
+    if (isActive) {
+      await handleStopMonitoring(() => {});
+    } else {
+      await handleStartMonitoring(() => {});
+    }
+  }
+});
 
 // Listen for tab updates to re-inject start signal if monitoring is active
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
