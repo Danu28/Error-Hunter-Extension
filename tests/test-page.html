@@ -212,21 +212,21 @@
     // ════════════════════════════════════
 
     function triggerFetch404() {
-      fetch('https://httpstat.us/404')
+      fetch('http://127.0.0.1:8080/api/not-found')
         .then(() => log('fetch 404 ✓ (response received, check popup)', 'success'))
         .catch(() => log('fetch 404 caught in catch', 'error'));
     }
 
     function triggerFetch500() {
-      fetch('https://httpstat.us/500')
+      fetch('http://127.0.0.1:8080/api/server-error')
         .then(() => log('fetch 500 ✓', 'success'))
         .catch(() => log('fetch 500 caught', 'error'));
     }
 
     function triggerFetchPost() {
-      fetch('https://httpstat.us/404', { method: 'POST', body: 'test' })
-        .then(() => log('fetch POST 404 ✓', 'success'))
-        .catch(() => log('fetch POST 404 caught', 'error'));
+      fetch('http://127.0.0.1:8080/api/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ test: true }) })
+        .then(() => log('fetch POST 201 ✓ (created)', 'success'))
+        .catch(() => log('fetch POST caught', 'error'));
     }
 
     function triggerFetchNetworkError() {
@@ -241,7 +241,7 @@
 
     function triggerXHR404() {
       const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'https://httpstat.us/404');
+      xhr.open('GET', 'http://127.0.0.1:8080/api/not-found');
       xhr.onloadend = () => log('XHR 404 ✓', 'success');
       xhr.onerror = () => log('XHR 404 network error', 'error');
       xhr.send();
@@ -249,7 +249,7 @@
 
     function triggerXHR500() {
       const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'https://httpstat.us/500');
+      xhr.open('GET', 'http://127.0.0.1:8080/api/server-error');
       xhr.onloadend = () => log('XHR 500 ✓', 'success');
       xhr.onerror = () => log('XHR 500 network error', 'error');
       xhr.send();
@@ -257,11 +257,11 @@
 
     function triggerXHRPost() {
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', 'https://httpstat.us/404');
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.onloadend = () => log('XHR POST 404 ✓', 'success');
+      xhr.open('POST', 'http://127.0.0.1:8080/api/submit');
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+      xhr.onloadend = () => log('XHR POST 201 ✓ (created)', 'success');
       xhr.onerror = () => log('XHR POST network error', 'error');
-      xhr.send(JSON.stringify({ test: true }));
+      xhr.send('test=data');
     }
 
     function triggerXHRNetworkError() {
