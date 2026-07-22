@@ -55,17 +55,21 @@ function removePageWorldListeners() {
 }
 
 // ── Console Error Interception ──
-function patchConsoleError() {
-  if (originalConsoleError) {
-    return;
+function patchConsole(methodName, prefix, level) {
+  const orig = methodName === 'error' ? originalConsoleError : originalConsoleWarn;
+  if (orig) return;
+
+  const consoleMethod = console[methodName];
+  if (methodName === 'error') {
+    originalConsoleError = consoleMethod;
+  } else {
+    originalConsoleWarn = consoleMethod;
   }
-  originalConsoleError = console.error;
 
-  console.error = function (...args) {
-    // Call original first
-    originalConsoleError.apply(console, args);
+  console[methodName] = function (...args) {
+    (methodName === 'error' ? originalConsoleError : originalConsoleWarn).apply(console, args);
 
-    const message = args.map(a => {
+    const message = prefix + args.map(a => {
       if (a instanceof Error) return a.message;
       if (typeof a === 'object') try { return JSON.stringify(a); } catch (e) { return String(a); }
       return String(a);
@@ -75,6 +79,7 @@ function patchConsoleError() {
 
     reportError({
       type: 'console',
+      ...(level ? { level } : {}),
       message,
       stack,
       url: window.location.href,
@@ -83,47 +88,19 @@ function patchConsoleError() {
   };
 }
 
-function unpatchConsoleError() {
-  if (originalConsoleError) {
-    console.error = originalConsoleError;
-    originalConsoleError = null;
+function unpatchConsole(methodName) {
+  const orig = methodName === 'error' ? originalConsoleError : originalConsoleWarn;
+  if (orig) {
+    console[methodName] = orig;
+    if (methodName === 'error') originalConsoleError = null;
+    else originalConsoleWarn = null;
   }
 }
 
-function patchConsoleWarn() {
-  if (originalConsoleWarn) {
-    return;
-  }
-  originalConsoleWarn = console.warn;
-
-  console.warn = function (...args) {
-    originalConsoleWarn.apply(console, args);
-
-    const message = '(warning) ' + args.map(a => {
-      if (a instanceof Error) return a.message;
-      if (typeof a === 'object') try { return JSON.stringify(a); } catch (e) { return String(a); }
-      return String(a);
-    }).join(' ');
-
-    const stack = args.find(a => a instanceof Error)?.stack || null;
-
-    reportError({
-      type: 'console',
-      level: 'warn',
-      message,
-      stack,
-      url: window.location.href,
-      timestamp: Date.now()
-    });
-  };
-}
-
-function unpatchConsoleWarn() {
-  if (originalConsoleWarn) {
-    console.warn = originalConsoleWarn;
-    originalConsoleWarn = null;
-  }
-}
+function patchConsoleError() { patchConsole('error', ''); }
+function patchConsoleWarn() { patchConsole('warn', '(warning) ', 'warn'); }
+function unpatchConsoleError() { unpatchConsole('error'); }
+function unpatchConsoleWarn() { unpatchConsole('warn'); }
 
 // ── Uncaught Exception Interception ──
 function addErrorListeners() {

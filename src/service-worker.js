@@ -102,19 +102,7 @@ async function handleStartMonitoring(sendResponse) {
   try {
     await chrome.storage.session.set({ [STATUS_KEY]: true });
 
-    // Broadcast start to all tabs with content scripts
-    const tabs = await chrome.tabs.query({});
-    let sentCount = 0;
-    for (const tab of tabs) {
-      if (tab.url && tab.url.startsWith('http')) {
-        try {
-          await chrome.tabs.sendMessage(tab.id, { action: 'start' });
-          sentCount++;
-        } catch (e) {
-          // Tab not ready, skip
-        }
-      }
-    }
+    await broadcastToTabs('start');
 
     sendResponse({ success: true });
   } catch (err) {
@@ -128,17 +116,7 @@ async function handleStopMonitoring(sendResponse) {
   try {
     await chrome.storage.session.set({ [STATUS_KEY]: false });
 
-    // Broadcast stop to all tabs
-    const tabs = await chrome.tabs.query({});
-    for (const tab of tabs) {
-      if (tab.url && tab.url.startsWith('http')) {
-        try {
-          await chrome.tabs.sendMessage(tab.id, { action: 'stop' });
-        } catch (e) {
-          // Tab may not have content script, that's fine
-        }
-      }
-    }
+    await broadcastToTabs('stop');
 
     sendResponse({ success: true });
   } catch (err) {
@@ -373,6 +351,20 @@ function injectPageWorldErrorCapture() {
     });
     return _origXHRSend.apply(xhr, arguments);
   };
+}
+
+// Broadcast an action (start/stop) to all http tabs
+async function broadcastToTabs(action) {
+  const tabs = await chrome.tabs.query({});
+  for (const tab of tabs) {
+    if (tab.url && tab.url.startsWith('http')) {
+      try {
+        await chrome.tabs.sendMessage(tab.id, { action });
+      } catch (e) {
+        // Tab may not have content script, that's fine
+      }
+    }
+  }
 }
 
 // Update the badge with current error count

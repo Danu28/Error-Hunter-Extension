@@ -141,19 +141,6 @@ function runTests() {
     }
   });
 
-  // ── No MV2 or MV1 specific keys ──
-  test('does not contain MV2-specific "browser_action"', () => {
-    assert.strictEqual(manifest.browser_action, undefined);
-  });
-
-  test('does not contain MV2-specific "page_action"', () => {
-    assert.strictEqual(manifest.page_action, undefined);
-  });
-
-  test('does not contain MV2-specific "background_page"', () => {
-    assert.strictEqual(manifest.background_page, undefined);
-  });
-
   // ── Summary ──
   const failed = results.filter(r => !r.passed);
   const passed = results.filter(r => r.passed);

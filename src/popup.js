@@ -250,23 +250,8 @@ function getFilteredErrors() {
 // ── Build HTML for a single error item ──
 function buildErrorItem(error, index) {
   const time = formatTime(error.timestamp);
-  let typeClass, typeLabel;
-  if (error.level === 'warn') {
-    typeClass = 'warning';
-    typeLabel = 'Warning';
-  } else if (error.type === 'exception') {
-    typeClass = 'console';
-    typeLabel = 'Exception';
-  } else if (error.type === 'unhandledrejection') {
-    typeClass = 'console';
-    typeLabel = 'Rejection';
-  } else if (error.type === 'network') {
-    typeClass = 'network';
-    typeLabel = 'HTTP Error';
-  } else {
-    typeClass = 'console';
-    typeLabel = 'JS Error';
-  }
+  const typeClass = getTypeClass(error.type, error.level);
+  const typeLabel = getTypeLabel(error.type, error.level);
 
   let metaHtml = '';
   let detailsHtml = '';
@@ -425,10 +410,7 @@ async function copyErrorToClipboard(index, btn) {
 }
 
 function formatErrorForClipboard(error) {
-  const typeLabel = error.type === 'console' ? 'JS Error (console)' :
-    error.type === 'exception' ? 'Exception' :
-    error.type === 'unhandledrejection' ? 'Unhandled Rejection' :
-    'HTTP Error (network)';
+  const typeLabel = getTypeLabel(error.type, error.level, true);
   const lines = [
     `Error Type: ${typeLabel}`,
     `Message: ${error.message}`,
@@ -463,10 +445,7 @@ function exportReport() {
 
   let rowsHtml = '';
   filtered.forEach((error, i) => {
-    const typeLabel = error.type === 'console' ? 'JS Error' :
-      error.type === 'exception' ? 'Exception' :
-      error.type === 'unhandledrejection' ? 'Rejection' :
-      'HTTP Error';
+    const typeLabel = getTypeLabel(error.type, error.level);
     const time = new Date(error.timestamp).toLocaleString();
     rowsHtml += `<tr>
       <td>${i + 1}</td>
@@ -519,14 +498,8 @@ function exportReport() {
 </body>
 </html>`;
 
-  const blob = new Blob([html], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
   const dateStr = now.toISOString().slice(0, 19).replace(/[:-]/g, '');
-  a.href = url;
-  a.download = `error-hunter-report-${dateStr}.html`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(html, `error-hunter-report-${dateStr}.html`, 'text/html');
 }
 
 // ── Export JSON Report ──
@@ -542,13 +515,7 @@ function exportReportJson() {
   const now = new Date();
   const dateStr = now.toISOString().slice(0, 19).replace(/[:-]/g, '');
   const json = JSON.stringify(filtered, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `error-hunter-report-${dateStr}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(json, `error-hunter-report-${dateStr}.json`, 'application/json');
 }
 
 // ── Copy Selected Errors ──
@@ -623,6 +590,46 @@ function getStatusClass(status) {
   if (status >= 500) return 'error-5xx';
   if (status >= 400) return 'error-4xx';
   return '';
+}
+
+function getTypeLabel(type, level, verbose) {
+  if (!verbose && level === 'warn') return 'Warning';
+  if (verbose) {
+    switch (type) {
+      case 'console': return 'JS Error (console)';
+      case 'exception': return 'Exception';
+      case 'unhandledrejection': return 'Unhandled Rejection';
+      default: return 'HTTP Error (network)';
+    }
+  }
+  switch (type) {
+    case 'exception': return 'Exception';
+    case 'unhandledrejection': return 'Rejection';
+    case 'network': return 'HTTP Error';
+    default: return 'JS Error';
+  }
+}
+
+function getTypeClass(type, level) {
+  if (level === 'warn') return 'warning';
+  switch (type) {
+    case 'exception':
+    case 'unhandledrejection':
+    case 'console':
+      return 'console';
+    case 'network': return 'network';
+    default: return 'console';
+  }
+}
+
+function downloadBlob(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function escapeHtml(str) {
