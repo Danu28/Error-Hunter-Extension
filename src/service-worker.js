@@ -123,12 +123,10 @@ async function handleStartMonitoring(sendResponse) {
   }
 }
 
-// Stop monitoring: clear badge, clear errors, send stop to tabs
+// Stop monitoring: stop capturing, keep existing errors
 async function handleStopMonitoring(sendResponse) {
   try {
     await chrome.storage.session.set({ [STATUS_KEY]: false });
-    await chrome.storage.session.set({ [STORAGE_KEY]: [] });
-    await chrome.action.setBadgeText({ text: '' });
 
     // Broadcast stop to all tabs
     const tabs = await chrome.tabs.query({});

@@ -4,6 +4,8 @@ let errors = [];
 let currentFilter = 'all';
 let searchText = '';
 let prevErrorCount = 0;
+let expandedSet = new Set();
+let checkedSet = new Set();
 
 // ── DOM References ──
 const btnStart = document.getElementById('btnStart');
@@ -77,13 +79,19 @@ function setupEventListeners() {
       copyErrorToClipboard(index, copyBtn);
       return;
     }
-    // Don't toggle expand when clicking checkbox
-    if (e.target.closest('.error-checkbox')) {
+    const checkbox = e.target.closest('.error-checkbox');
+    if (checkbox) {
+      const idx = parseInt(checkbox.dataset.index);
+      if (checkbox.checked) checkedSet.add(idx);
+      else checkedSet.delete(idx);
       updateCopySelectedButton();
       return;
     }
     const errorItem = e.target.closest('.error-item');
     if (errorItem) {
+      const idx = parseInt(errorItem.dataset.index);
+      if (expandedSet.has(idx)) expandedSet.delete(idx);
+      else expandedSet.add(idx);
       errorItem.classList.toggle('expanded');
     }
   });
@@ -132,7 +140,6 @@ async function stopMonitoring() {
   try {
     const response = await chrome.runtime.sendMessage({ action: 'stop_monitoring' });
     if (response && response.success) {
-      errors = [];
       updateUI(false);
     }
   } catch (err) {
@@ -146,6 +153,8 @@ async function clearErrors() {
     const response = await chrome.runtime.sendMessage({ action: 'clear_errors' });
     if (response && response.success) {
       errors = [];
+      expandedSet.clear();
+      checkedSet.clear();
       renderErrors();
     }
   } catch (err) {
@@ -159,6 +168,8 @@ async function deleteError(index) {
     const response = await chrome.runtime.sendMessage({ action: 'delete_error', index });
     if (response && response.success) {
       errors = response.errors;
+      expandedSet.clear();
+      checkedSet.clear();
       renderErrors();
     }
   } catch (err) {
@@ -209,8 +220,8 @@ function renderErrors() {
   });
 
   errorList.innerHTML = html;
-  // Reset expand toggle — all items start collapsed after re-render
-  expandToggle.textContent = 'Expand all';
+  const expandedItems = errorList.querySelectorAll('.error-item.expanded');
+  expandToggle.textContent = expandedItems.length > 0 ? 'Collapse all' : 'Expand all';
 }
 
 // ── Filter errors based on current filter and search text ──
@@ -330,10 +341,14 @@ function buildErrorItem(error, index) {
     }
   }
 
+  const origIndex = errors.indexOf(error);
+  const expanded = expandedSet.has(origIndex) ? ' expanded' : '';
+  const checked = checkedSet.has(origIndex) ? ' checked' : '';
+
   return `
-    <div class="error-item">
+    <div class="error-item${expanded}" data-index="${origIndex}">
       <div class="error-header">
-        <input type="checkbox" class="error-checkbox" data-index="${errors.indexOf(error)}">
+        <input type="checkbox" class="error-checkbox" data-index="${origIndex}"${checked}>
         <span class="error-type-badge ${typeClass}">${typeLabel}</span>
         <div class="error-main">
           <div class="error-message">${escapeHtml(error.message)}</div>
