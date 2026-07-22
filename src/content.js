@@ -24,7 +24,9 @@ function reportError(error) {
     return;
   }
   chrome.runtime.sendMessage({ action: 'new_error', error }).catch((err) => {
-    console.error('[Error Hunter] new_error sendMessage FAILED:', err.message);
+    if (err.message.includes('Extension context invalidated')) {
+      stopMonitoring();
+    }
   });
 }
 
@@ -184,7 +186,11 @@ function startMonitoring() {
   addPageWorldListeners();
 
   // Ask service worker to inject page-world error capture via scripting API
-  chrome.runtime.sendMessage({ action: 'inject_page_world' }).catch(() => {});
+  chrome.runtime.sendMessage({ action: 'inject_page_world' }).catch((err) => {
+    if (err.message.includes('Extension context invalidated')) {
+      stopMonitoring();
+    }
+  });
 }
 
 function stopMonitoring() {
