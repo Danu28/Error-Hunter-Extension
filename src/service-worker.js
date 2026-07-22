@@ -291,16 +291,31 @@ function injectPageWorldErrorCapture() {
       method = (args[1] && args[1].method) || 'GET';
     }
 
+    var startTime = Date.now();
+    var requestBody = (args[1] && args[1].body) || '';
+
     return _origFetch.apply(window, args).then(function(response) {
       if (!response.ok && response.status >= 400) {
-        window.dispatchEvent(new CustomEvent('eh-network-error', {
-          detail: {
-            type: 'network',
-            message: 'Fetch ' + method + ' ' + url + ' returned ' + response.status + ' ' + response.statusText,
-            url: url, method: method, status: response.status, statusText: response.statusText,
-            timestamp: Date.now()
-          }
-        }));
+        var respBodyPromise;
+        try {
+          respBodyPromise = response.clone().text();
+        } catch (e) {
+          respBodyPromise = Promise.resolve('');
+        }
+        respBodyPromise.then(function(text) {
+          var preview = text ? text.substring(0, 500) : '';
+          window.dispatchEvent(new CustomEvent('eh-network-error', {
+            detail: {
+              type: 'network',
+              message: 'Fetch ' + method + ' ' + url + ' returned ' + response.status + ' ' + response.statusText,
+              url: url, method: method, status: response.status, statusText: response.statusText,
+              timestamp: Date.now(),
+              requestBody: requestBody,
+              responseBody: preview,
+              duration: Date.now() - startTime
+            }
+          }));
+        });
       }
       return response;
     }).catch(function(err) {
@@ -309,7 +324,10 @@ function injectPageWorldErrorCapture() {
           type: 'network',
           message: 'Fetch ' + method + ' ' + url + ' failed: ' + err.message,
           url: url, method: method, status: 0, statusText: 'Network Failure',
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          requestBody: requestBody,
+          responseBody: err.message,
+          duration: Date.now() - startTime
         }
       }));
       throw err;
@@ -328,15 +346,22 @@ function injectPageWorldErrorCapture() {
 
   XMLHttpRequest.prototype.send = function() {
     var xhr = this;
+    var startTime = Date.now();
+    var requestBody = arguments.length > 0 ? String(arguments[0]) : '';
     xhr.addEventListener('loadend', function() {
       if (xhr.status >= 400) {
+        var bodyText = xhr.responseText || '';
+        var preview = bodyText.substring(0, 500);
         window.dispatchEvent(new CustomEvent('eh-network-error', {
           detail: {
             type: 'network',
             message: 'XHR ' + xhr._eh_method + ' ' + xhr._eh_url + ' returned ' + xhr.status + ' ' + xhr.statusText,
             url: xhr._eh_url, method: xhr._eh_method,
             status: xhr.status, statusText: xhr.statusText,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            requestBody: requestBody,
+            responseBody: preview,
+            duration: Date.now() - startTime
           }
         }));
       }
@@ -348,7 +373,10 @@ function injectPageWorldErrorCapture() {
           message: 'XHR ' + xhr._eh_method + ' ' + xhr._eh_url + ' failed: Network error',
           url: xhr._eh_url, method: xhr._eh_method,
           status: 0, statusText: 'Network Failure',
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          requestBody: requestBody,
+          responseBody: '',
+          duration: Date.now() - startTime
         }
       }));
     });

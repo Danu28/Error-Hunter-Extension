@@ -290,6 +290,14 @@ function buildErrorItem(error, index) {
         </span>
       `;
     }
+
+    if (error.duration) {
+      metaHtml += `
+        <span class="error-meta-item">
+          <span class="label">took</span> ${error.duration}ms
+        </span>
+      `;
+    }
   }
 
   // Details section (shown on expand)
@@ -336,6 +344,30 @@ function buildErrorItem(error, index) {
         <div class="error-details-section">
           <div class="error-details-label">HTTP Status</div>
           <div class="error-details-content">${error.status} ${escapeHtml(error.statusText || '')}</div>
+        </div>
+      `;
+    }
+    if (error.duration) {
+      detailsHtml += `
+        <div class="error-details-section">
+          <div class="error-details-label">Duration</div>
+          <div class="error-details-content">${error.duration}ms</div>
+        </div>
+      `;
+    }
+    if (error.requestBody) {
+      detailsHtml += `
+        <div class="error-details-section">
+          <div class="error-details-label">Request Body</div>
+          <div class="error-details-content"><pre class="error-stack">${escapeHtml(error.requestBody.substring(0, 200))}</pre></div>
+        </div>
+      `;
+    }
+    if (error.responseBody) {
+      detailsHtml += `
+        <div class="error-details-section">
+          <div class="error-details-label">Response Body Preview</div>
+          <div class="error-details-content"><pre class="error-stack">${escapeHtml(error.responseBody.substring(0, 200))}</pre></div>
         </div>
       `;
     }
@@ -390,6 +422,9 @@ function formatErrorForClipboard(error) {
   if (error.type === 'network') {
     if (error.method) lines.push(`Method: ${error.method}`);
     if (error.status) lines.push(`Status: ${error.status} ${error.statusText || ''}`);
+    if (error.duration) lines.push(`Duration: ${error.duration}ms`);
+    if (error.requestBody) lines.push(`Request Body: ${error.requestBody.substring(0, 200)}`);
+    if (error.responseBody) lines.push(`Response Body: ${error.responseBody.substring(0, 200)}`);
   }
   return lines.join('\n');
 }
