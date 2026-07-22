@@ -2,15 +2,21 @@
 
 let errors = [];
 let currentFilter = 'all';
+let searchText = '';
+let prevErrorCount = 0;
 
 // ── DOM References ──
 const btnStart = document.getElementById('btnStart');
 const btnStop = document.getElementById('btnStop');
 const btnClear = document.getElementById('btnClear');
 const btnExport = document.getElementById('btnExport');
+const btnExportJson = document.getElementById('btnExportJson');
+const btnCopySelected = document.getElementById('btnCopySelected');
 const statusIndicator = document.getElementById('statusIndicator');
 const errorList = document.getElementById('errorList');
 const errorCount = document.getElementById('errorCount');
+const expandToggle = document.getElementById('expandToggle');
+const searchInput = document.getElementById('searchInput');
 const filterBtns = document.querySelectorAll('.filter-btn');
 
 // ── Initialize ──
@@ -29,6 +35,14 @@ async function loadState() {
     const response = await chrome.runtime.sendMessage({ action: 'get_errors' });
     if (response) {
       errors = response.errors || [];
+      // Auto-scroll to bottom if new errors arrived and user is near bottom
+      if (errors.length > prevErrorCount && errors.length > 0) {
+        const atBottom = errorList.scrollTop + errorList.clientHeight >= errorList.scrollHeight - 50;
+        if (atBottom) {
+          errorList.scrollTop = errorList.scrollHeight;
+        }
+      }
+      prevErrorCount = errors.length;
       updateUI(response.isMonitoring);
     } else {
       console.warn('[Error Hunter] loadState - null/undefined response from SW');
@@ -45,6 +59,7 @@ function setupEventListeners() {
   btnStop.addEventListener('click', stopMonitoring);
   btnClear.addEventListener('click', clearErrors);
   btnExport.addEventListener('click', exportReport);
+  btnExportJson.addEventListener('click', exportReportJson);
 
   // Event delegation for error list
   errorList.addEventListener('click', (e) => {
@@ -62,6 +77,11 @@ function setupEventListeners() {
       copyErrorToClipboard(index, copyBtn);
       return;
     }
+    // Don't toggle expand when clicking checkbox
+    if (e.target.closest('.error-checkbox')) {
+      updateCopySelectedButton();
+      return;
+    }
     const errorItem = e.target.closest('.error-item');
     if (errorItem) {
       errorItem.classList.toggle('expanded');
@@ -76,6 +96,21 @@ function setupEventListeners() {
       renderErrors();
     });
   });
+
+  expandToggle.addEventListener('click', (e) => {
+    e.preventDefault();
+    const items = errorList.querySelectorAll('.error-item');
+    const hasExpanded = Array.from(items).some(item => item.classList.contains('expanded'));
+    items.forEach(item => item.classList.toggle('expanded', !hasExpanded));
+    expandToggle.textContent = hasExpanded ? 'Expand all' : 'Collapse all';
+  });
+
+  searchInput.addEventListener('input', () => {
+    searchText = searchInput.value.trim().toLowerCase();
+    renderErrors();
+  });
+
+  btnCopySelected.addEventListener('click', copySelectedErrors);
 }
 
 // ── Start Monitoring ──
@@ -174,14 +209,26 @@ function renderErrors() {
   });
 
   errorList.innerHTML = html;
+  // Reset expand toggle — all items start collapsed after re-render
+  expandToggle.textContent = 'Expand all';
 }
 
-// ── Filter errors based on current filter ──
+// ── Filter errors based on current filter and search text ──
 function getFilteredErrors() {
-  if (currentFilter === 'all') return errors;
-  if (currentFilter === 'warning') return errors.filter(e => e.level === 'warn');
-  if (currentFilter === 'console') return errors.filter(e => e.type === 'console' && e.level !== 'warn');
-  return errors.filter(e => e.type === currentFilter);
+  let filtered = errors;
+  if (currentFilter === 'warning') filtered = filtered.filter(e => e.level === 'warn');
+  else if (currentFilter === 'console') filtered = filtered.filter(e => e.type === 'console' && e.level !== 'warn');
+  else if (currentFilter !== 'all') filtered = filtered.filter(e => e.type === currentFilter);
+
+  if (searchText) {
+    filtered = filtered.filter(e =>
+      (e.message && e.message.toLowerCase().includes(searchText)) ||
+      (e.url && e.url.toLowerCase().includes(searchText)) ||
+      (e.status != null && String(e.status).includes(searchText))
+    );
+  }
+
+  return filtered;
 }
 
 // ── Build HTML for a single error item ──
@@ -286,6 +333,7 @@ function buildErrorItem(error, index) {
   return `
     <div class="error-item">
       <div class="error-header">
+        <input type="checkbox" class="error-checkbox" data-index="${errors.indexOf(error)}">
         <span class="error-type-badge ${typeClass}">${typeLabel}</span>
         <div class="error-main">
           <div class="error-message">${escapeHtml(error.message)}</div>
@@ -409,6 +457,61 @@ function exportReport() {
   a.download = `error-hunter-report-${dateStr}.html`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ── Export JSON Report ──
+function exportReportJson() {
+  const filtered = getFilteredErrors();
+  if (filtered.length === 0) {
+    const orig = btnExportJson.textContent;
+    btnExportJson.textContent = 'No errors';
+    setTimeout(() => { btnExportJson.textContent = orig; }, 2000);
+    return;
+  }
+
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0, 19).replace(/[:-]/g, '');
+  const json = JSON.stringify(filtered, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `error-hunter-report-${dateStr}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── Copy Selected Errors ──
+function updateCopySelectedButton() {
+  const checked = errorList.querySelectorAll('.error-checkbox:checked');
+  btnCopySelected.hidden = checked.length === 0;
+}
+
+async function copySelectedErrors() {
+  const checked = errorList.querySelectorAll('.error-checkbox:checked');
+  if (checked.length === 0) return;
+
+  const parts = [];
+  checked.forEach(cb => {
+    const idx = parseInt(cb.dataset.index);
+    if (idx >= 0 && idx < errors.length) {
+      parts.push(formatErrorForClipboard(errors[idx]));
+    }
+  });
+
+  const text = parts.join('\n---\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    btnCopySelected.textContent = `Copied ${checked.length}`;
+    setTimeout(() => { btnCopySelected.textContent = 'Copy selected'; }, 1500);
+  } catch {
+    btnCopySelected.textContent = 'Copy failed';
+    setTimeout(() => { btnCopySelected.textContent = 'Copy selected'; }, 1500);
+  }
+
+  // Uncheck all
+  checked.forEach(cb => { cb.checked = false; });
+  updateCopySelectedButton();
 }
 
 // ── Utilities ──

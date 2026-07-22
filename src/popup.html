@@ -20,6 +20,8 @@
       <button class="btn btn-stop" id="btnStop" hidden>Stop Monitoring</button>
       <button class="btn btn-clear" id="btnClear">Clear</button>
       <button class="btn btn-export" id="btnExport">Export Report</button>
+      <button class="btn btn-json" id="btnExportJson">JSON</button>
+      <button class="btn btn-copy-selected" id="btnCopySelected" hidden>Copy selected</button>
     </div>
 
     <!-- Filter tabs -->
@@ -30,9 +32,15 @@
       <button class="filter-btn" data-filter="network">Network</button>
     </div>
 
+    <!-- Search input -->
+    <div class="search-bar">
+      <input type="text" class="search-input" id="searchInput" placeholder="Search errors...">
+    </div>
+
     <!-- Error count summary -->
     <div class="summary" id="summary">
       <span id="errorCount">0 errors</span>
+      <a href="#" class="expand-toggle" id="expandToggle">Expand all</a>
     </div>
 
     <!-- Error list -->
