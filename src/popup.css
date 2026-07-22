@@ -240,6 +240,31 @@ body {
   background-color: var(--bg-hover);
 }
 
+.delete-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s, background-color 0.15s;
+  line-height: 1;
+  margin-top: 1px;
+  color: var(--text-muted);
+}
+
+.error-item:hover .delete-btn {
+  opacity: 0.5;
+}
+
+.delete-btn:hover {
+  opacity: 1 !important;
+  color: var(--accent-red);
+  background-color: rgba(220, 53, 69, 0.15);
+}
+
 .error-type-badge {
   flex-shrink: 0;
   display: inline-block;
@@ -260,6 +285,11 @@ body {
 .error-type-badge.network {
   background-color: rgba(240, 173, 78, 0.15);
   color: var(--network-color);
+}
+
+.error-type-badge.warning {
+  background-color: rgba(240, 173, 78, 0.15);
+  color: var(--accent-orange);
 }
 
 .error-main {

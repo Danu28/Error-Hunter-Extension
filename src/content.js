@@ -4,6 +4,7 @@
 let monitoring = false;
 
 let originalConsoleError = null;
+let originalConsoleWarn = null;
 
 // Listen for start/stop commands from service worker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -35,7 +36,7 @@ function reportError(error) {
 
 let pageWorldHandler = null;
 
-const PAGE_WORLD_EVENTS = ['eh-console-error', 'eh-window-error', 'eh-unhandled-rejection', 'eh-network-error'];
+const PAGE_WORLD_EVENTS = ['eh-console-error', 'eh-console-warn', 'eh-window-error', 'eh-unhandled-rejection', 'eh-network-error'];
 
 function addPageWorldListeners() {
   if (pageWorldHandler) return;
@@ -93,6 +94,41 @@ function unpatchConsoleError() {
   }
 }
 
+function patchConsoleWarn() {
+  if (originalConsoleWarn) {
+    return;
+  }
+  originalConsoleWarn = console.warn;
+
+  console.warn = function (...args) {
+    originalConsoleWarn.apply(console, args);
+
+    const message = '(warning) ' + args.map(a => {
+      if (a instanceof Error) return a.message;
+      if (typeof a === 'object') try { return JSON.stringify(a); } catch (e) { return String(a); }
+      return String(a);
+    }).join(' ');
+
+    const stack = args.find(a => a instanceof Error)?.stack || null;
+
+    reportError({
+      type: 'console',
+      level: 'warn',
+      message,
+      stack,
+      url: window.location.href,
+      timestamp: Date.now()
+    });
+  };
+}
+
+function unpatchConsoleWarn() {
+  if (originalConsoleWarn) {
+    console.warn = originalConsoleWarn;
+    originalConsoleWarn = null;
+  }
+}
+
 // ── Uncaught Exception Interception ──
 function addErrorListeners() {
   window.addEventListener('error', handleWindowError);
@@ -143,6 +179,7 @@ function startMonitoring() {
   monitoring = true;
 
   patchConsoleError();
+  patchConsoleWarn();
   addErrorListeners();
   addPageWorldListeners();
 
@@ -157,6 +194,7 @@ function stopMonitoring() {
   monitoring = false;
 
   unpatchConsoleError();
+  unpatchConsoleWarn();
   removeErrorListeners();
   removePageWorldListeners();
 }

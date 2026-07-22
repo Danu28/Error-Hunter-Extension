@@ -48,6 +48,13 @@ function setupEventListeners() {
 
   // Event delegation for error list
   errorList.addEventListener('click', (e) => {
+    const deleteBtn = e.target.closest('.delete-btn');
+    if (deleteBtn) {
+      e.stopPropagation();
+      const index = parseInt(deleteBtn.dataset.index);
+      deleteError(index);
+      return;
+    }
     const copyBtn = e.target.closest('.copy-btn');
     if (copyBtn) {
       e.stopPropagation();
@@ -111,6 +118,19 @@ async function clearErrors() {
   }
 }
 
+// ── Delete Single Error ──
+async function deleteError(index) {
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'delete_error', index });
+    if (response && response.success) {
+      errors = response.errors;
+      renderErrors();
+    }
+  } catch (err) {
+    console.error('[Error Hunter] Failed to delete error:', err);
+  }
+}
+
 // ── Update UI State ──
 function updateUI(isMonitoring) {
   if (isMonitoring) {
@@ -130,7 +150,17 @@ function updateUI(isMonitoring) {
 function renderErrors() {
   const filtered = getFilteredErrors();
 
-  errorCount.textContent = `${filtered.length} error${filtered.length !== 1 ? 's' : ''}`;
+  // Build summary with breakdown
+  const consoleCount = filtered.filter(e => e.type === 'console' && e.level !== 'warn').length;
+  const warnCount = filtered.filter(e => e.level === 'warn').length;
+  const networkCount = filtered.filter(e => e.type === 'network').length;
+  const parts = [];
+  if (consoleCount > 0) parts.push(`${consoleCount} console`);
+  if (warnCount > 0) parts.push(`${warnCount} warning`);
+  if (networkCount > 0) parts.push(`${networkCount} network`);
+  let summaryText = `${filtered.length} error${filtered.length !== 1 ? 's' : ''}`;
+  if (parts.length > 0) summaryText += ` (${parts.join(', ')})`;
+  errorCount.textContent = summaryText;
 
   if (filtered.length === 0) {
     errorList.innerHTML = `<div class="empty-state">No errors captured.</div>`;
@@ -149,15 +179,22 @@ function renderErrors() {
 // ── Filter errors based on current filter ──
 function getFilteredErrors() {
   if (currentFilter === 'all') return errors;
-
+  if (currentFilter === 'warning') return errors.filter(e => e.level === 'warn');
+  if (currentFilter === 'console') return errors.filter(e => e.type === 'console' && e.level !== 'warn');
   return errors.filter(e => e.type === currentFilter);
 }
 
 // ── Build HTML for a single error item ──
 function buildErrorItem(error, index) {
   const time = formatTime(error.timestamp);
-  const typeClass = error.type === 'console' ? 'console' : 'network';
-  const typeLabel = error.type === 'console' ? 'JS Error' : 'HTTP Error';
+  let typeClass, typeLabel;
+  if (error.level === 'warn') {
+    typeClass = 'warning';
+    typeLabel = 'Warning';
+  } else {
+    typeClass = error.type === 'console' ? 'console' : 'network';
+    typeLabel = error.type === 'console' ? 'JS Error' : 'HTTP Error';
+  }
 
   let metaHtml = '';
   let detailsHtml = '';
@@ -254,6 +291,7 @@ function buildErrorItem(error, index) {
           <div class="error-message">${escapeHtml(error.message)}</div>
           <div class="error-meta">${metaHtml}</div>
         </div>
+        <button class="delete-btn" data-index="${errors.indexOf(error)}" title="Delete error">✕</button>
         <button class="copy-btn" data-index="${index}" title="Copy error details">📋</button>
       </div>
       <div class="error-details">${detailsHtml}</div>

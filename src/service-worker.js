@@ -43,6 +43,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleClearErrors(sendResponse);
       return true;
 
+    case 'delete_error':
+      handleDeleteError(message, sendResponse);
+      return true;
+
     default:
       console.warn('[Error Hunter] SW unknown message action:', message.action);
   }
@@ -157,6 +161,23 @@ async function handleClearErrors(sendResponse) {
   }
 }
 
+// Delete a single error by index
+async function handleDeleteError(message, sendResponse) {
+  try {
+    const result = await chrome.storage.session.get(STORAGE_KEY);
+    const errors = result[STORAGE_KEY] || [];
+    if (message.index >= 0 && message.index < errors.length) {
+      errors.splice(message.index, 1);
+      await chrome.storage.session.set({ [STORAGE_KEY]: errors });
+      await updateBadge(errors.length);
+    }
+    sendResponse({ success: true, errors });
+  } catch (err) {
+    console.error('[Error Hunter] handleDeleteError FAILED:', err.message);
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
 // ── Inject page-world error capture via scripting API ──
 // This bypasses CSP because the injection happens at the extension level,
 // not through DOM <script> element insertion.
@@ -209,6 +230,28 @@ function injectPageWorldErrorCapture() {
 
     window.dispatchEvent(new CustomEvent('eh-console-error', {
       detail: { type: 'console', message: message, stack: stack, url: location.href, timestamp: Date.now() }
+    }));
+  };
+
+  var _origConsoleWarn = console.warn;
+
+  console.warn = function() {
+    _origConsoleWarn.apply(console, arguments);
+
+    var args = Array.prototype.slice.call(arguments);
+    var message = '(warning) ' + args.map(function(a) {
+      if (a instanceof Error) return a.message;
+      if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
+      return String(a);
+    }).join(' ');
+
+    var stack = null;
+    for (var i = 0; i < args.length; i++) {
+      if (args[i] instanceof Error) { stack = args[i].stack; break; }
+    }
+
+    window.dispatchEvent(new CustomEvent('eh-console-warn', {
+      detail: { type: 'console', level: 'warn', message: message, stack: stack, url: location.href, timestamp: Date.now() }
     }));
   };
 
