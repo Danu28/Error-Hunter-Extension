@@ -6,6 +6,9 @@ let monitoring = false;
 let originalConsoleError = null;
 let originalConsoleWarn = null;
 
+let pageWorldHandler = null;
+const PAGE_WORLD_EVENTS = ['eh-console-error', 'eh-console-warn', 'eh-window-error', 'eh-unhandled-rejection', 'eh-network-error'];
+
 // Listen for start/stop commands from service worker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'start') {
@@ -28,6 +31,23 @@ function reportError(error) {
       stopMonitoring();
     }
   });
+}
+
+// ── Page-World Event Bridge ──
+function addPageWorldListeners() {
+  if (pageWorldHandler) return;
+  pageWorldHandler = (e) => { if (monitoring) reportError(e.detail); };
+  for (const name of PAGE_WORLD_EVENTS) {
+    window.addEventListener(name, pageWorldHandler);
+  }
+}
+
+function removePageWorldListeners() {
+  if (!pageWorldHandler) return;
+  for (const name of PAGE_WORLD_EVENTS) {
+    window.removeEventListener(name, pageWorldHandler);
+  }
+  pageWorldHandler = null;
 }
 
 // ── Console Error Interception ──
@@ -120,6 +140,13 @@ function startMonitoring() {
   patchConsole('error', '');
   patchConsole('warn', '(warning) ', 'warn');
   addErrorListeners();
+  addPageWorldListeners();
+
+  chrome.runtime.sendMessage({ action: 'inject_page_world' }).catch((err) => {
+    if (err.message.includes('Extension context invalidated')) {
+      stopMonitoring();
+    }
+  });
 }
 
 function stopMonitoring() {
@@ -131,6 +158,7 @@ function stopMonitoring() {
   unpatchConsole('error');
   unpatchConsole('warn');
   removeErrorListeners();
+  removePageWorldListeners();
 }
 
 // Auto-start if service worker indicates monitoring is active

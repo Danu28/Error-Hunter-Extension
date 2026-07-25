@@ -39,6 +39,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleClearErrors(sendResponse);
       return true;
 
+    case 'inject_page_world':
+      handleInjectPageWorld(sender, sendResponse);
+      return true;
+
     case 'delete_error':
       handleDeleteError(message, sendResponse);
       return true;
@@ -47,6 +51,152 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       console.warn('[Error Hunter] SW unknown message action:', message.action);
   }
 });
+
+async function handleInjectPageWorld(sender, sendResponse) {
+  try {
+    if (!sender.tab) { sendResponse({ success: false }); return; }
+    await chrome.scripting.executeScript({
+      target: { tabId: sender.tab.id },
+      world: "MAIN",
+      func: injectPageWorldErrorCapture,
+    });
+    sendResponse({ success: true });
+  } catch (err) {
+    console.error('[Error Hunter] injectPageWorld FAILED:', err.message);
+    sendResponse({ success: false });
+  }
+}
+
+// Runs in the page's MAIN world via executeScript
+function injectPageWorldErrorCapture() {
+  if (window.__eh_patched) return;
+  window.__eh_patched = true;
+
+  function makeDetail(type, extra) {
+    extra.type = type;
+    if (extra.url === undefined) extra.url = location.href;
+    extra.timestamp = Date.now();
+    return extra;
+  }
+
+  // Console.error
+  var _origConsoleError = console.error;
+  console.error = function () {
+    _origConsoleError.apply(console, arguments);
+    var args = Array.prototype.slice.call(arguments);
+    var message = args.map(function (a) {
+      if (a instanceof Error) return a.message;
+      if (typeof a === 'object') { try { return JSON.stringify(a); } catch (e) { return String(a); } }
+      return String(a);
+    }).join(' ');
+    var stack = null;
+    for (var i = 0; i < args.length; i++) {
+      if (args[i] instanceof Error) { stack = args[i].stack; break; }
+    }
+    window.dispatchEvent(new CustomEvent('eh-console-error', {
+      detail: makeDetail('console', { message: message, stack: stack })
+    }));
+  };
+
+  // Console.warn
+  var _origConsoleWarn = console.warn;
+  console.warn = function () {
+    _origConsoleWarn.apply(console, arguments);
+    var args = Array.prototype.slice.call(arguments);
+    var message = '(warning) ' + args.map(function (a) {
+      if (a instanceof Error) return a.message;
+      if (typeof a === 'object') { try { return JSON.stringify(a); } catch (e) { return String(a); } }
+      return String(a);
+    }).join(' ');
+    var stack = null;
+    for (var i = 0; i < args.length; i++) {
+      if (args[i] instanceof Error) { stack = args[i].stack; break; }
+    }
+    window.dispatchEvent(new CustomEvent('eh-console-warn', {
+      detail: makeDetail('console', { level: 'warn', message: message, stack: stack })
+    }));
+  };
+
+  // Window error and rejection
+  window.addEventListener('error', function (e) {
+    window.dispatchEvent(new CustomEvent('eh-window-error', {
+      detail: makeDetail('exception', {
+        message: e.message || 'Unknown error',
+        stack: e.error ? e.error.stack : null,
+        url: e.filename || location.href,
+        line: e.lineno, column: e.colno
+      })
+    }));
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var reason = e.reason;
+    var message = reason && reason.message ? reason.message : String(reason);
+    var stack = reason && reason.stack ? reason.stack : null;
+    window.dispatchEvent(new CustomEvent('eh-unhandled-rejection', {
+      detail: makeDetail('unhandledrejection', { message: message, stack: stack })
+    }));
+  });
+
+  // Fetch
+  var _origFetch = window.fetch;
+  window.fetch = function () {
+    var args = arguments;
+    var url = '';
+    var method = 'GET';
+    if (args[0] instanceof Request) { url = args[0].url; method = args[0].method || 'GET'; }
+    else if (typeof args[0] === 'string') { url = args[0]; method = (args[1] && args[1].method) || 'GET'; }
+    return _origFetch.apply(window, args).then(function (response) {
+      if (!response.ok && response.status >= 400) {
+        window.dispatchEvent(new CustomEvent('eh-network-error', {
+          detail: makeDetail('network', {
+            message: 'Fetch ' + method + ' ' + url + ' returned ' + response.status,
+            url: url, method: method, status: response.status, statusText: response.statusText
+          })
+        }));
+      }
+      return response;
+    }).catch(function (err) {
+      window.dispatchEvent(new CustomEvent('eh-network-error', {
+        detail: makeDetail('network', {
+          message: 'Fetch ' + method + ' ' + url + ' failed: ' + err.message,
+          url: url, method: method, status: 0, statusText: 'Network Failure'
+        })
+      }));
+      throw err;
+    });
+  };
+
+  // XHR
+  var _origXHROpen = XMLHttpRequest.prototype.open;
+  var _origXHRSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    this._eh_method = method;
+    this._eh_url = (typeof url === 'string') ? url : (url ? String(url) : '');
+    return _origXHROpen.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.send = function () {
+    var xhr = this;
+    xhr.addEventListener('loadend', function () {
+      if (xhr.status >= 400) {
+        window.dispatchEvent(new CustomEvent('eh-network-error', {
+          detail: makeDetail('network', {
+            message: 'XHR ' + xhr._eh_method + ' ' + xhr._eh_url + ' returned ' + xhr.status,
+            url: xhr._eh_url, method: xhr._eh_method, status: xhr.status, statusText: xhr.statusText
+          })
+        }));
+      }
+    });
+    xhr.addEventListener('error', function () {
+      window.dispatchEvent(new CustomEvent('eh-network-error', {
+        detail: makeDetail('network', {
+          message: 'XHR ' + xhr._eh_method + ' ' + xhr._eh_url + ' failed: Network error',
+          url: xhr._eh_url, method: xhr._eh_method, status: 0, statusText: 'Network Failure'
+        })
+      }));
+    });
+    return _origXHRSend.apply(xhr, arguments);
+  };
+}
 
 // Store a new error and update badge
 async function handleNewError(error, sender) {

@@ -16,25 +16,43 @@ function runTests() {
     }
   }
 
+  const src = fs.readFileSync(CONTENT_JS_PATH, 'utf-8');
+
   test('content.js file exists', () => {
     assert.ok(fs.existsSync(CONTENT_JS_PATH));
   });
 
   test('content.js has valid JavaScript syntax', () => {
-    const src = fs.readFileSync(CONTENT_JS_PATH, 'utf-8');
     new Function(src);
   });
 
-  test('content.js exports startMonitoring and stopMonitoring', () => {
-    const src = fs.readFileSync(CONTENT_JS_PATH, 'utf-8');
+  test('content.js has startMonitoring and stopMonitoring functions', () => {
     assert.ok(src.includes('function startMonitoring'));
     assert.ok(src.includes('function stopMonitoring'));
   });
 
   test('content.js patches console.error and console.warn', () => {
-    const src = fs.readFileSync(CONTENT_JS_PATH, 'utf-8');
     assert.ok(src.includes('function patchConsole'));
     assert.ok(src.includes('function unpatchConsole'));
+  });
+
+  test('content.js has page-world event bridge (PAGE_WORLD_EVENTS)', () => {
+    assert.ok(src.includes('PAGE_WORLD_EVENTS'));
+    assert.ok(src.includes('eh-console-error'));
+    assert.ok(src.includes('eh-network-error'));
+    assert.ok(src.includes('function addPageWorldListeners'));
+    assert.ok(src.includes('function removePageWorldListeners'));
+  });
+
+  test('content.js sends inject_page_world message on start', () => {
+    assert.ok(src.includes("action: 'inject_page_world'"));
+  });
+
+  test('content.js has error and rejection listeners', () => {
+    assert.ok(src.includes('function addErrorListeners'));
+    assert.ok(src.includes('function removeErrorListeners'));
+    assert.ok(src.includes('function handleWindowError'));
+    assert.ok(src.includes('function handleUnhandledRejection'));
   });
 
   const failed = results.filter(r => !r.passed);
