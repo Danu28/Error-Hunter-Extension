@@ -27,6 +27,12 @@
       "run_at": "document_start"
     }
   ],
+  "commands": {
+    "toggle-monitoring": {
+      "suggested_key": { "default": "Ctrl+Shift+E", "mac": "Command+Shift+E" },
+      "description": "Toggle error monitoring on/off"
+    }
+  },
   "action": {
     "default_popup": "src/popup.html",
     "default_title": "Error Hunter",

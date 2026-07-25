@@ -7,6 +7,7 @@ let prevErrorCount = 0;
 let lastRenderKey = '';
 let expandedSet = new Set();
 let checkedSet = new Set();
+let currentScreenshot = null;
 
 // ── DOM References ──
 const btnStart = document.getElementById('btnStart');
@@ -21,15 +22,23 @@ const errorCount = document.getElementById('errorCount');
 const expandToggle = document.getElementById('expandToggle');
 const searchInput = document.getElementById('searchInput');
 const filterBtns = document.querySelectorAll('.filter-btn');
+const screenshotSection = document.getElementById('screenshotSection');
+const screenshotThumb = document.getElementById('screenshotThumb');
+const btnDismissScreenshot = document.getElementById('btnDismissScreenshot');
 
 // ── Initialize ──
 document.addEventListener('DOMContentLoaded', () => {
   loadState();
   setupEventListeners();
-  // Refresh errors periodically while popup is open
   setInterval(() => {
     loadState();
-  }, 2000);
+  }, 10000);
+});
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.action === 'errors_updated') {
+    loadState();
+  }
 });
 
 // ── Load state from service worker ──
@@ -38,6 +47,15 @@ async function loadState() {
     const response = await chrome.runtime.sendMessage({ action: 'get_errors' });
     if (response) {
       errors = response.errors || [];
+      // Screenshot handling
+      if (response.screenshot) {
+        currentScreenshot = response.screenshot;
+        screenshotThumb.src = currentScreenshot;
+        screenshotSection.hidden = false;
+      } else {
+        currentScreenshot = null;
+        screenshotSection.hidden = true;
+      }
       // Auto-scroll to bottom if new errors arrived and user is near bottom
       if (errors.length > prevErrorCount && errors.length > 0) {
         const atBottom = errorList.scrollTop + errorList.clientHeight >= errorList.scrollHeight - 50;
@@ -120,10 +138,28 @@ function setupEventListeners() {
   });
 
   btnCopySelected.addEventListener('click', copySelectedErrors);
+
+  screenshotThumb.addEventListener('click', () => {
+    if (currentScreenshot) window.open(currentScreenshot);
+  });
+
+  btnDismissScreenshot.addEventListener('click', async () => {
+    try {
+      await chrome.runtime.sendMessage({ action: 'clear_screenshot' });
+    } catch (e) {}
+    currentScreenshot = null;
+    screenshotSection.hidden = true;
+  });
 }
 
 // ── Start Monitoring ──
 async function startMonitoring() {
+  // Clear screenshot for new session
+  try {
+    await chrome.runtime.sendMessage({ action: 'clear_screenshot' });
+  } catch (e) {}
+  currentScreenshot = null;
+  screenshotSection.hidden = true;
   try {
     const response = await chrome.runtime.sendMessage({ action: 'start_monitoring' });
     if (response && response.success) {
@@ -161,6 +197,12 @@ async function clearErrors() {
   } catch (err) {
     console.error('[Error Hunter] Failed to clear errors:', err);
   }
+  // Clear screenshot
+  try {
+    await chrome.runtime.sendMessage({ action: 'clear_screenshot' });
+  } catch (e) {}
+  currentScreenshot = null;
+  screenshotSection.hidden = true;
 }
 
 // ── Delete Single Error ──
@@ -372,6 +414,37 @@ function buildErrorItem(error, index) {
     }
   }
 
+  // Count badge for deduplicated errors
+  let countBadge = '';
+  if (error.count && error.count > 1) {
+    countBadge = ` <span class="count-badge" title="${error.count} occurrences">[×${error.count}]</span>`;
+  }
+
+  // Occurrences in details
+  if (error.count && error.count > 1) {
+    detailsHtml += `
+      <div class="error-details-section">
+        <div class="error-details-label">Occurrences</div>
+        <div class="error-details-content">${error.count}</div>
+      </div>
+    `;
+  }
+
+  // Console log breadcrumbs in details
+  if (error.logs && error.logs.length > 0) {
+    let logsHtml = '';
+    for (var i = 0; i < error.logs.length; i++) {
+      var log = error.logs[i];
+      logsHtml += '<div>' + escapeHtml(new Date(log.timestamp).toLocaleTimeString()) + ' — ' + escapeHtml(log.message) + '</div>';
+    }
+    detailsHtml += `
+      <div class="error-details-section">
+        <div class="error-details-label">Console Logs (last ${error.logs.length})</div>
+        <div class="error-details-content">${logsHtml}</div>
+      </div>
+    `;
+  }
+
   const origIndex = errors.indexOf(error);
   const expanded = expandedSet.has(origIndex) ? ' expanded' : '';
   const checked = checkedSet.has(origIndex) ? ' checked' : '';
@@ -382,7 +455,7 @@ function buildErrorItem(error, index) {
         <input type="checkbox" class="error-checkbox" data-index="${origIndex}"${checked}>
         <span class="error-type-badge ${typeClass}">${typeLabel}</span>
         <div class="error-main">
-          <div class="error-message">${escapeHtml(error.message)}</div>
+          <div class="error-message">${escapeHtml(error.message)}${countBadge}</div>
           <div class="error-meta">${metaHtml}</div>
         </div>
         <button class="delete-btn" data-index="${errors.indexOf(error)}" title="Delete error">✕</button>
@@ -416,6 +489,7 @@ function formatErrorForClipboard(error) {
     `Message: ${error.message}`,
     `Time: ${new Date(error.timestamp).toLocaleString()}`,
   ];
+  if (error.count && error.count > 1) lines.push(`Occurrences: ${error.count}`);
   if (error.url) lines.push(`URL: ${error.url}`);
   if ((error.type === 'console' || error.type === 'exception' || error.type === 'unhandledrejection') && error.stack) lines.push(`Stack Trace:\n${error.stack}`);
   if (error.type === 'network') {
@@ -424,6 +498,12 @@ function formatErrorForClipboard(error) {
     if (error.duration) lines.push(`Duration: ${error.duration}ms`);
     if (error.requestBody) lines.push(`Request Body: ${error.requestBody.substring(0, 200)}`);
     if (error.responseBody) lines.push(`Response Body: ${error.responseBody.substring(0, 200)}`);
+  }
+  if (error.logs && error.logs.length > 0) {
+    lines.push(`Console Logs (last ${error.logs.length}):`);
+    for (var i = 0; i < error.logs.length; i++) {
+      lines.push(`  [${new Date(error.logs[i].timestamp).toLocaleTimeString()}] ${error.logs[i].message}`);
+    }
   }
   return lines.join('\n');
 }
@@ -456,6 +536,11 @@ function exportReport() {
       <td>${time}</td>
     </tr>`;
   });
+
+  let screenshotHtml = '';
+  if (currentScreenshot) {
+    screenshotHtml = `<div style="margin-bottom:16px"><img src="${currentScreenshot}" style="max-width:100%;border-radius:4px"></div>`;
+  }
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -491,6 +576,7 @@ function exportReport() {
     <div class="summary-card console"><div class="num">${consoleCount}</div><div class="label">Console Errors</div></div>
     <div class="summary-card network"><div class="num">${networkCount}</div><div class="label">Network Errors</div></div>
   </div>
+  ${screenshotHtml}
   <table>
     <thead><tr><th>#</th><th>Type</th><th>Message</th><th>URL</th><th>Status</th><th>Time</th></tr></thead>
     <tbody>${rowsHtml}</tbody>

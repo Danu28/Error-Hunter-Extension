@@ -3,6 +3,7 @@
 
 const STORAGE_KEY = 'error_hunter_errors';
 const STATUS_KEY = 'error_hunter_active';
+const SCREENSHOT_KEY = 'error_hunter_screenshot';
 
 // Initialize state
 chrome.runtime.onInstalled.addListener(() => {
@@ -47,10 +48,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleDeleteError(message, sendResponse);
       return true;
 
+    case 'capture_screenshot':
+      handleCaptureScreenshot(sender, sendResponse);
+      return true;
+
+    case 'get_screenshot':
+      handleGetScreenshot(sendResponse);
+      return true;
+
+    case 'clear_screenshot':
+      handleClearScreenshot(sendResponse);
+      return true;
+
     default:
       console.warn('[Error Hunter] SW unknown message action:', message.action);
   }
 });
+
+function normalizeMessage(msg) {
+  if (!msg) return '';
+  return msg.toLowerCase()
+    .trim()
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<id>')
+    .replace(/\b0x[0-9a-f]+\b/gi, '<hex>')
+    .replace(/\b\d{10,}\b/g, '<ts>')
+    .replace(/\s+/g, ' ');
+}
 
 // Store a new error and update badge
 async function handleNewError(error, sender) {
@@ -64,9 +87,24 @@ async function handleNewError(error, sender) {
       error.tabUrl = sender.tab.url;
     }
 
-    errors.push(error);
+    // Deduplicate: if same type + message + url exists, increment count
+    const normalizedMessage = normalizeMessage(error.message);
+    const existing = errors.find(e =>
+      e.type === error.type &&
+      normalizeMessage(e.message) === normalizedMessage &&
+      e.url === error.url
+    );
+    if (existing) {
+      existing.count = (existing.count || 1) + 1;
+      existing.timestamp = error.timestamp; // update to latest occurrence
+    } else {
+      error.count = 1;
+      errors.push(error);
+    }
+
     await chrome.storage.session.set({ [STORAGE_KEY]: errors });
     await updateBadge(errors.length);
+    chrome.runtime.sendMessage({ action: 'errors_updated' }).catch(() => {});
   } catch (err) {
     console.error('[Error Hunter] Failed to store error:', err);
   }
@@ -75,14 +113,15 @@ async function handleNewError(error, sender) {
 // Return all stored errors
 async function handleGetErrors(sendResponse) {
   try {
-    const result = await chrome.storage.session.get([STORAGE_KEY, STATUS_KEY]);
+    const result = await chrome.storage.session.get([STORAGE_KEY, STATUS_KEY, SCREENSHOT_KEY]);
     sendResponse({
       errors: result[STORAGE_KEY] || [],
-      isMonitoring: result[STATUS_KEY] || false
+      isMonitoring: result[STATUS_KEY] || false,
+      screenshot: result[SCREENSHOT_KEY] || null
     });
   } catch (err) {
     console.error('[Error Hunter] handleGetErrors FAILED:', err.message);
-    sendResponse({ errors: [], isMonitoring: false });
+    sendResponse({ errors: [], isMonitoring: false, screenshot: null });
   }
 }
 
@@ -137,13 +176,18 @@ async function handleClearErrors(sendResponse) {
   }
 }
 
-// Delete a single error by index
+// Delete a single error by index (decrement count or remove)
 async function handleDeleteError(message, sendResponse) {
   try {
     const result = await chrome.storage.session.get(STORAGE_KEY);
     const errors = result[STORAGE_KEY] || [];
     if (message.index >= 0 && message.index < errors.length) {
-      errors.splice(message.index, 1);
+      const err = errors[message.index];
+      if (err.count && err.count > 1) {
+        err.count--;
+      } else {
+        errors.splice(message.index, 1);
+      }
       await chrome.storage.session.set({ [STORAGE_KEY]: errors });
       await updateBadge(errors.length);
     }
@@ -172,12 +216,49 @@ async function handleInjectPageWorld(sender, sendResponse) {
   }
 }
 
+// Capture screenshot of the sender's tab and store in session storage
+async function handleCaptureScreenshot(sender, sendResponse) {
+  try {
+    if (!sender.tab) {
+      sendResponse({ success: false });
+      return;
+    }
+    const dataUrl = await chrome.tabs.captureVisibleTab(sender.tab.windowId, { format: 'png' });
+    await chrome.storage.session.set({ [SCREENSHOT_KEY]: dataUrl });
+    sendResponse({ success: true });
+  } catch (err) {
+    // Fail silently - tab may not be active
+    sendResponse({ success: false });
+  }
+}
+
+// Return stored screenshot data URI
+async function handleGetScreenshot(sendResponse) {
+  try {
+    const result = await chrome.storage.session.get(SCREENSHOT_KEY);
+    sendResponse({ screenshot: result[SCREENSHOT_KEY] || null });
+  } catch (err) {
+    console.error('[Error Hunter] handleGetScreenshot FAILED:', err.message);
+    sendResponse({ screenshot: null });
+  }
+}
+
+// Clear stored screenshot
+async function handleClearScreenshot(sendResponse) {
+  try {
+    await chrome.storage.session.remove(SCREENSHOT_KEY);
+    sendResponse({ success: true });
+  } catch (err) {
+    console.error('[Error Hunter] handleClearScreenshot FAILED:', err.message);
+    sendResponse({ success: false });
+  }
+}
+
 // Runs in page's MAIN world via executeScript (serialized via toString)
 function injectPageWorldErrorCapture() {
   if (window.__eh_patched) return;
   window.__eh_patched = true;
 
-  // Helper to reduce duplication in detail object construction
   function makeDetail(type, extra) {
     extra.type = type;
     if (extra.url === undefined) extra.url = location.href;
@@ -367,14 +448,50 @@ async function broadcastToTabs(action) {
   }
 }
 
-// Update the badge with current error count
+// Pick badge color based on most severe error type in storage
+function getBadgeColor(errors) {
+  for (const e of errors) {
+    if (e.type === 'exception' || e.type === 'unhandledrejection') {
+      return '#dc3545'; // red
+    }
+  }
+  for (const e of errors) {
+    if (e.type === 'console' && e.level === 'warn') {
+      return '#f0ad4e'; // orange
+    }
+  }
+  for (const e of errors) {
+    if (e.type === 'network') {
+      return '#3794ff'; // blue
+    }
+  }
+  return '#dc3545'; // default red
+}
+
+// Update the badge with current error count and color
 async function updateBadge(count) {
   const text = count > 0 ? String(count) : '';
   await chrome.action.setBadgeText({ text: text });
   if (count > 0) {
-    await chrome.action.setBadgeBackgroundColor({ color: '#dc3545' });
+    const result = await chrome.storage.session.get(STORAGE_KEY);
+    const errors = result[STORAGE_KEY] || [];
+    const color = getBadgeColor(errors);
+    await chrome.action.setBadgeBackgroundColor({ color: color });
   }
 }
+
+// Listen for keyboard shortcut to toggle monitoring
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command === 'toggle-monitoring') {
+    const result = await chrome.storage.session.get(STATUS_KEY);
+    const isActive = result[STATUS_KEY] || false;
+    if (isActive) {
+      await handleStopMonitoring(() => {});
+    } else {
+      await handleStartMonitoring(() => {});
+    }
+  }
+});
 
 // Listen for tab updates to re-inject start signal if monitoring is active
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
