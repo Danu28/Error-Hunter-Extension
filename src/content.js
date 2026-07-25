@@ -2,7 +2,6 @@
 // Captures console errors, uncaught exceptions, unhandled rejections, and failed network requests
 
 let monitoring = false;
-let screenshotCaptured = false;
 
 let originalConsoleError = null;
 let originalConsoleWarn = null;
@@ -36,11 +35,6 @@ function reportError(error) {
       stopMonitoring();
     }
   });
-  // Capture screenshot on first 5xx network error
-  if (!screenshotCaptured && error.type === 'network' && error.status >= 500) {
-    screenshotCaptured = true;
-    chrome.runtime.sendMessage({ action: 'capture_screenshot' }).catch(() => {});
-  }
 }
 
 // Push a log entry to the ring buffer (max 5)
@@ -208,10 +202,6 @@ function handleWindowError(event) {
     column: event.colno,
     timestamp: Date.now()
   });
-  if (!screenshotCaptured) {
-    screenshotCaptured = true;
-    chrome.runtime.sendMessage({ action: 'capture_screenshot' }).catch(() => {});
-  }
 }
 
 function handleUnhandledRejection(event) {
@@ -234,7 +224,6 @@ function startMonitoring() {
     return;
   }
   monitoring = true;
-  screenshotCaptured = false;
   logBreadcrumbs = [];
 
   patchConsoleError();

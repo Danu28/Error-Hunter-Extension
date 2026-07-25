@@ -100,8 +100,7 @@ function runTests() {
       'filters',
       'summary',
       'errorCount',
-      'errorList',
-      'screenshotSection'
+      'errorList'
     ];
 
     for (const id of requiredIds) {
@@ -190,10 +189,7 @@ function runTests() {
       "getElementById('btnClear')",
       "getElementById('statusIndicator')",
       "getElementById('errorList')",
-      "getElementById('errorCount')",
-      "getElementById('screenshotSection')",
-      "getElementById('screenshotThumb')",
-      "getElementById('btnDismissScreenshot')"
+      "getElementById('errorCount')"
     ];
     for (const ref of expectedRefs) {
       assert.ok(src.includes(ref), `Missing DOM reference: ${ref}`);

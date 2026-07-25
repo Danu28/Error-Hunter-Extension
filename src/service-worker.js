@@ -3,7 +3,6 @@
 
 const STORAGE_KEY = 'error_hunter_errors';
 const STATUS_KEY = 'error_hunter_active';
-const SCREENSHOT_KEY = 'error_hunter_screenshot';
 
 // Initialize state
 chrome.runtime.onInstalled.addListener(() => {
@@ -48,32 +47,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleDeleteError(message, sendResponse);
       return true;
 
-    case 'capture_screenshot':
-      handleCaptureScreenshot(sender, sendResponse);
-      return true;
-
-    case 'get_screenshot':
-      handleGetScreenshot(sendResponse);
-      return true;
-
-    case 'clear_screenshot':
-      handleClearScreenshot(sendResponse);
-      return true;
-
     default:
       console.warn('[Error Hunter] SW unknown message action:', message.action);
   }
 });
-
-function normalizeMessage(msg) {
-  if (!msg) return '';
-  return msg.toLowerCase()
-    .trim()
-    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<id>')
-    .replace(/\b0x[0-9a-f]+\b/gi, '<hex>')
-    .replace(/\b\d{10,}\b/g, '<ts>')
-    .replace(/\s+/g, ' ');
-}
 
 // Store a new error and update badge
 async function handleNewError(error, sender) {
@@ -88,10 +65,9 @@ async function handleNewError(error, sender) {
     }
 
     // Deduplicate: if same type + message + url exists, increment count
-    const normalizedMessage = normalizeMessage(error.message);
     const existing = errors.find(e =>
       e.type === error.type &&
-      normalizeMessage(e.message) === normalizedMessage &&
+      e.message === error.message &&
       e.url === error.url
     );
     if (existing) {
@@ -104,7 +80,6 @@ async function handleNewError(error, sender) {
 
     await chrome.storage.session.set({ [STORAGE_KEY]: errors });
     await updateBadge(errors.length);
-    chrome.runtime.sendMessage({ action: 'errors_updated' }).catch(() => {});
   } catch (err) {
     console.error('[Error Hunter] Failed to store error:', err);
   }
@@ -113,15 +88,14 @@ async function handleNewError(error, sender) {
 // Return all stored errors
 async function handleGetErrors(sendResponse) {
   try {
-    const result = await chrome.storage.session.get([STORAGE_KEY, STATUS_KEY, SCREENSHOT_KEY]);
+    const result = await chrome.storage.session.get([STORAGE_KEY, STATUS_KEY]);
     sendResponse({
       errors: result[STORAGE_KEY] || [],
-      isMonitoring: result[STATUS_KEY] || false,
-      screenshot: result[SCREENSHOT_KEY] || null
+      isMonitoring: result[STATUS_KEY] || false
     });
   } catch (err) {
     console.error('[Error Hunter] handleGetErrors FAILED:', err.message);
-    sendResponse({ errors: [], isMonitoring: false, screenshot: null });
+    sendResponse({ errors: [], isMonitoring: false });
   }
 }
 
@@ -216,53 +190,25 @@ async function handleInjectPageWorld(sender, sendResponse) {
   }
 }
 
-// Capture screenshot of the sender's tab and store in session storage
-async function handleCaptureScreenshot(sender, sendResponse) {
-  try {
-    if (!sender.tab) {
-      sendResponse({ success: false });
-      return;
-    }
-    const dataUrl = await chrome.tabs.captureVisibleTab(sender.tab.windowId, { format: 'png' });
-    await chrome.storage.session.set({ [SCREENSHOT_KEY]: dataUrl });
-    sendResponse({ success: true });
-  } catch (err) {
-    // Fail silently - tab may not be active
-    sendResponse({ success: false });
-  }
-}
-
-// Return stored screenshot data URI
-async function handleGetScreenshot(sendResponse) {
-  try {
-    const result = await chrome.storage.session.get(SCREENSHOT_KEY);
-    sendResponse({ screenshot: result[SCREENSHOT_KEY] || null });
-  } catch (err) {
-    console.error('[Error Hunter] handleGetScreenshot FAILED:', err.message);
-    sendResponse({ screenshot: null });
-  }
-}
-
-// Clear stored screenshot
-async function handleClearScreenshot(sendResponse) {
-  try {
-    await chrome.storage.session.remove(SCREENSHOT_KEY);
-    sendResponse({ success: true });
-  } catch (err) {
-    console.error('[Error Hunter] handleClearScreenshot FAILED:', err.message);
-    sendResponse({ success: false });
-  }
-}
-
 // Runs in page's MAIN world via executeScript (serialized via toString)
 function injectPageWorldErrorCapture() {
   if (window.__eh_patched) return;
   window.__eh_patched = true;
 
+  // Ring buffer for console log breadcrumbs (last 5 entries)
+  var __eh_logs = [];
+
+  function __eh_pushLog(msg) {
+    __eh_logs.push({ message: msg, timestamp: Date.now() });
+    if (__eh_logs.length > 5) __eh_logs.shift();
+  }
+
+  // Helper to reduce duplication in detail object construction
   function makeDetail(type, extra) {
     extra.type = type;
     if (extra.url === undefined) extra.url = location.href;
     extra.timestamp = Date.now();
+    extra.logs = __eh_logs.slice();
     return extra;
   }
 
@@ -313,6 +259,45 @@ function injectPageWorldErrorCapture() {
     window.dispatchEvent(new CustomEvent('eh-console-warn', {
       detail: makeDetail('console', { level: 'warn', message: message, stack: stack })
     }));
+  };
+
+  var _origConsoleLog = console.log;
+
+  console.log = function() {
+    _origConsoleLog.apply(console, arguments);
+    var args = Array.prototype.slice.call(arguments);
+    var message = args.map(function(a) {
+      if (a instanceof Error) return a.message;
+      if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
+      return String(a);
+    }).join(' ');
+    __eh_pushLog(message);
+  };
+
+  var _origConsoleDebug = console.debug;
+
+  console.debug = function() {
+    _origConsoleDebug.apply(console, arguments);
+    var args = Array.prototype.slice.call(arguments);
+    var message = args.map(function(a) {
+      if (a instanceof Error) return a.message;
+      if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
+      return String(a);
+    }).join(' ');
+    __eh_pushLog('(debug) ' + message);
+  };
+
+  var _origConsoleInfo = console.info;
+
+  console.info = function() {
+    _origConsoleInfo.apply(console, arguments);
+    var args = Array.prototype.slice.call(arguments);
+    var message = args.map(function(a) {
+      if (a instanceof Error) return a.message;
+      if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
+      return String(a);
+    }).join(' ');
+    __eh_pushLog('(info) ' + message);
   };
 
   window.addEventListener('error', function(e) {
