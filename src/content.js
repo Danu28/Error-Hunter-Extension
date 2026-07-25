@@ -31,11 +31,16 @@ function reportError(error) {
     return;
   }
   error.logs = logBreadcrumbs.slice();
-  chrome.runtime.sendMessage({ action: 'new_error', error }).catch((err) => {
-    if (err.message.includes('Extension context invalidated')) {
-      stopMonitoring();
-    }
-  });
+  function sendError(attempt) {
+    chrome.runtime.sendMessage({ action: 'new_error', error }).catch((err) => {
+      if (err.message.includes('Extension context invalidated')) {
+        if (attempt < 5) {
+          setTimeout(() => sendError(attempt + 1), 2000);
+        }
+      }
+    });
+  }
+  sendError(0);
   // Capture screenshot on first 5xx network error
   if (!screenshotCaptured && error.type === 'network' && error.status >= 500) {
     screenshotCaptured = true;
@@ -246,11 +251,16 @@ function startMonitoring() {
   addPageWorldListeners();
 
   // Ask service worker to inject page-world error capture via scripting API
-  chrome.runtime.sendMessage({ action: 'inject_page_world' }).catch((err) => {
-    if (err.message.includes('Extension context invalidated')) {
-      stopMonitoring();
-    }
-  });
+  function injectPageWorld(attempt) {
+    chrome.runtime.sendMessage({ action: 'inject_page_world' }).catch((err) => {
+      if (err.message.includes('Extension context invalidated')) {
+        if (attempt < 5) {
+          setTimeout(() => injectPageWorld(attempt + 1), 2000);
+        }
+      }
+    });
+  }
+  injectPageWorld(0);
 }
 
 function stopMonitoring() {
