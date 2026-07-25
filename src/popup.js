@@ -94,7 +94,8 @@ function setupEventListeners() {
     const copyBtn = e.target.closest('.copy-btn');
     if (copyBtn) {
       e.stopPropagation();
-      const index = parseInt(copyBtn.dataset.index);
+      const errorItem = copyBtn.closest('.error-item');
+      const index = parseInt(errorItem.dataset.index);
       copyErrorToClipboard(index, copyBtn);
       return;
     }
@@ -433,8 +434,8 @@ function buildErrorItem(error, index) {
   // Console log breadcrumbs in details
   if (error.logs && error.logs.length > 0) {
     let logsHtml = '';
-    for (var i = 0; i < error.logs.length; i++) {
-      var log = error.logs[i];
+    for (let i = 0; i < error.logs.length; i++) {
+      let log = error.logs[i];
       logsHtml += '<div>' + escapeHtml(new Date(log.timestamp).toLocaleTimeString()) + ' — ' + escapeHtml(log.message) + '</div>';
     }
     detailsHtml += `
@@ -459,7 +460,7 @@ function buildErrorItem(error, index) {
           <div class="error-meta">${metaHtml}</div>
         </div>
         <button class="delete-btn" data-index="${errors.indexOf(error)}" title="Delete error">✕</button>
-        <button class="copy-btn" data-index="${index}" title="Copy error details">📋</button>
+        <button class="copy-btn" title="Copy error details">📋</button>
       </div>
       <div class="error-details">${detailsHtml}</div>
     </div>
@@ -501,7 +502,7 @@ function formatErrorForClipboard(error) {
   }
   if (error.logs && error.logs.length > 0) {
     lines.push(`Console Logs (last ${error.logs.length}):`);
-    for (var i = 0; i < error.logs.length; i++) {
+    for (let i = 0; i < error.logs.length; i++) {
       lines.push(`  [${new Date(error.logs[i].timestamp).toLocaleTimeString()}] ${error.logs[i].message}`);
     }
   }
