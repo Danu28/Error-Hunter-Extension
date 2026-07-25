@@ -36,7 +36,10 @@ function runTests() {
       'handleStartMonitoring',
       'handleStopMonitoring',
       'handleClearErrors',
-      'handleInjectPageWorld'
+      'handleInjectPageWorld',
+      'handleCaptureScreenshot',
+      'handleGetScreenshot',
+      'handleClearScreenshot'
     ];
     for (const handler of expectedHandlers) {
       assert.ok(src.includes(`async function ${handler}`), `Missing handler: ${handler}`);
@@ -52,7 +55,10 @@ function runTests() {
       "case 'start_monitoring'",
       "case 'stop_monitoring'",
       "case 'clear_errors'",
-      "case 'inject_page_world'"
+      "case 'inject_page_world'",
+      "case 'capture_screenshot'",
+      "case 'get_screenshot'",
+      "case 'clear_screenshot'"
     ];
     for (const c of expectedCases) {
       assert.ok(src.includes(c), `Missing switch case: ${c}`);
@@ -63,6 +69,7 @@ function runTests() {
     const src = fs.readFileSync(SW_PATH, 'utf-8');
     assert.ok(src.includes("STORAGE_KEY = 'error_hunter_errors'"));
     assert.ok(src.includes("STATUS_KEY = 'error_hunter_active'"));
+    assert.ok(src.includes("SCREENSHOT_KEY = 'error_hunter_screenshot'"));
   });
 
   test('service-worker.js has storage.session calls', () => {

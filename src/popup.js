@@ -7,6 +7,7 @@ let prevErrorCount = 0;
 let lastRenderKey = '';
 let expandedSet = new Set();
 let checkedSet = new Set();
+let currentScreenshot = null;
 
 // ── DOM References ──
 const btnStart = document.getElementById('btnStart');
@@ -21,15 +22,23 @@ const errorCount = document.getElementById('errorCount');
 const expandToggle = document.getElementById('expandToggle');
 const searchInput = document.getElementById('searchInput');
 const filterBtns = document.querySelectorAll('.filter-btn');
+const screenshotSection = document.getElementById('screenshotSection');
+const screenshotThumb = document.getElementById('screenshotThumb');
+const btnDismissScreenshot = document.getElementById('btnDismissScreenshot');
 
 // ── Initialize ──
 document.addEventListener('DOMContentLoaded', () => {
   loadState();
   setupEventListeners();
-  // Refresh errors periodically while popup is open
   setInterval(() => {
     loadState();
-  }, 2000);
+  }, 10000);
+});
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.action === 'errors_updated') {
+    loadState();
+  }
 });
 
 // ── Load state from service worker ──
@@ -38,6 +47,15 @@ async function loadState() {
     const response = await chrome.runtime.sendMessage({ action: 'get_errors' });
     if (response) {
       errors = response.errors || [];
+      // Screenshot handling
+      if (response.screenshot) {
+        currentScreenshot = response.screenshot;
+        screenshotThumb.src = currentScreenshot;
+        screenshotSection.hidden = false;
+      } else {
+        currentScreenshot = null;
+        screenshotSection.hidden = true;
+      }
       // Auto-scroll to bottom if new errors arrived and user is near bottom
       if (errors.length > prevErrorCount && errors.length > 0) {
         const atBottom = errorList.scrollTop + errorList.clientHeight >= errorList.scrollHeight - 50;
@@ -120,10 +138,28 @@ function setupEventListeners() {
   });
 
   btnCopySelected.addEventListener('click', copySelectedErrors);
+
+  screenshotThumb.addEventListener('click', () => {
+    if (currentScreenshot) window.open(currentScreenshot);
+  });
+
+  btnDismissScreenshot.addEventListener('click', async () => {
+    try {
+      await chrome.runtime.sendMessage({ action: 'clear_screenshot' });
+    } catch (e) {}
+    currentScreenshot = null;
+    screenshotSection.hidden = true;
+  });
 }
 
 // ── Start Monitoring ──
 async function startMonitoring() {
+  // Clear screenshot for new session
+  try {
+    await chrome.runtime.sendMessage({ action: 'clear_screenshot' });
+  } catch (e) {}
+  currentScreenshot = null;
+  screenshotSection.hidden = true;
   try {
     const response = await chrome.runtime.sendMessage({ action: 'start_monitoring' });
     if (response && response.success) {
@@ -161,6 +197,12 @@ async function clearErrors() {
   } catch (err) {
     console.error('[Error Hunter] Failed to clear errors:', err);
   }
+  // Clear screenshot
+  try {
+    await chrome.runtime.sendMessage({ action: 'clear_screenshot' });
+  } catch (e) {}
+  currentScreenshot = null;
+  screenshotSection.hidden = true;
 }
 
 // ── Delete Single Error ──
@@ -495,6 +537,11 @@ function exportReport() {
     </tr>`;
   });
 
+  let screenshotHtml = '';
+  if (currentScreenshot) {
+    screenshotHtml = `<div style="margin-bottom:16px"><img src="${currentScreenshot}" style="max-width:100%;border-radius:4px"></div>`;
+  }
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -529,6 +576,7 @@ function exportReport() {
     <div class="summary-card console"><div class="num">${consoleCount}</div><div class="label">Console Errors</div></div>
     <div class="summary-card network"><div class="num">${networkCount}</div><div class="label">Network Errors</div></div>
   </div>
+  ${screenshotHtml}
   <table>
     <thead><tr><th>#</th><th>Type</th><th>Message</th><th>URL</th><th>Status</th><th>Time</th></tr></thead>
     <tbody>${rowsHtml}</tbody>
