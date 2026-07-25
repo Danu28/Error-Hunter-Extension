@@ -6,7 +6,6 @@ let searchText = '';
 let prevErrorCount = 0;
 let lastRenderKey = '';
 let expandedSet = new Set();
-let checkedSet = new Set();
 
 // ── DOM References ──
 const btnStart = document.getElementById('btnStart');
@@ -14,7 +13,6 @@ const btnStop = document.getElementById('btnStop');
 const btnClear = document.getElementById('btnClear');
 const btnExport = document.getElementById('btnExport');
 const btnExportJson = document.getElementById('btnExportJson');
-const btnCopySelected = document.getElementById('btnCopySelected');
 const statusIndicator = document.getElementById('statusIndicator');
 const errorList = document.getElementById('errorList');
 const errorCount = document.getElementById('errorCount');
@@ -61,8 +59,8 @@ function setupEventListeners() {
   btnStart.addEventListener('click', startMonitoring);
   btnStop.addEventListener('click', stopMonitoring);
   btnClear.addEventListener('click', clearErrors);
-  btnExport.addEventListener('click', exportReport);
-  btnExportJson.addEventListener('click', exportReportJson);
+  btnExport.addEventListener('click', () => exportReport('html'));
+  btnExportJson.addEventListener('click', () => exportReport('json'));
 
   // Event delegation for error list
   errorList.addEventListener('click', (e) => {
@@ -78,14 +76,6 @@ function setupEventListeners() {
       e.stopPropagation();
       const index = parseInt(copyBtn.dataset.index);
       copyErrorToClipboard(index, copyBtn);
-      return;
-    }
-    const checkbox = e.target.closest('.error-checkbox');
-    if (checkbox) {
-      const idx = parseInt(checkbox.dataset.index);
-      if (checkbox.checked) checkedSet.add(idx);
-      else checkedSet.delete(idx);
-      updateCopySelectedButton();
       return;
     }
     const errorItem = e.target.closest('.error-item');
@@ -118,8 +108,6 @@ function setupEventListeners() {
     searchText = searchInput.value.trim().toLowerCase();
     renderErrors();
   });
-
-  btnCopySelected.addEventListener('click', copySelectedErrors);
 }
 
 // ── Start Monitoring ──
@@ -155,7 +143,6 @@ async function clearErrors() {
     if (response && response.success) {
       errors = [];
       expandedSet.clear();
-      checkedSet.clear();
       renderErrors();
     }
   } catch (err) {
@@ -170,7 +157,6 @@ async function deleteError(index) {
     if (response && response.success) {
       errors = response.errors;
       expandedSet.clear();
-      checkedSet.clear();
       renderErrors();
     }
   } catch (err) {
@@ -388,29 +374,12 @@ function buildErrorItem(error, index) {
     `;
   }
 
-  // Console log breadcrumbs in details
-  if (error.logs && error.logs.length > 0) {
-    let logsHtml = '';
-    for (var i = 0; i < error.logs.length; i++) {
-      var log = error.logs[i];
-      logsHtml += '<div>' + escapeHtml(new Date(log.timestamp).toLocaleTimeString()) + ' — ' + escapeHtml(log.message) + '</div>';
-    }
-    detailsHtml += `
-      <div class="error-details-section">
-        <div class="error-details-label">Console Logs (last ${error.logs.length})</div>
-        <div class="error-details-content">${logsHtml}</div>
-      </div>
-    `;
-  }
-
   const origIndex = errors.indexOf(error);
   const expanded = expandedSet.has(origIndex) ? ' expanded' : '';
-  const checked = checkedSet.has(origIndex) ? ' checked' : '';
 
   return `
     <div class="error-item${expanded}" data-index="${origIndex}">
       <div class="error-header">
-        <input type="checkbox" class="error-checkbox" data-index="${origIndex}"${checked}>
         <span class="error-type-badge ${typeClass}">${typeLabel}</span>
         <div class="error-main">
           <div class="error-message">${escapeHtml(error.message)}${countBadge}</div>
@@ -457,45 +426,49 @@ function formatErrorForClipboard(error) {
     if (error.requestBody) lines.push(`Request Body: ${error.requestBody.substring(0, 200)}`);
     if (error.responseBody) lines.push(`Response Body: ${error.responseBody.substring(0, 200)}`);
   }
-  if (error.logs && error.logs.length > 0) {
-    lines.push(`Console Logs (last ${error.logs.length}):`);
-    for (var i = 0; i < error.logs.length; i++) {
-      lines.push(`  [${new Date(error.logs[i].timestamp).toLocaleTimeString()}] ${error.logs[i].message}`);
-    }
-  }
   return lines.join('\n');
 }
 
-// ── Export HTML Report ──
-function exportReport() {
+// ── Export Report (html or json) ──
+function exportReport(format) {
   const filtered = getFilteredErrors();
   if (filtered.length === 0) {
-    const orig = btnExport.textContent;
-    btnExport.textContent = 'No errors to export';
-    setTimeout(() => { btnExport.textContent = orig; }, 2000);
+    const btn = format === 'json' ? btnExportJson : btnExport;
+    const orig = btn.textContent;
+    btn.textContent = 'No errors';
+    setTimeout(() => { btn.textContent = orig; }, 2000);
     return;
   }
 
   const now = new Date();
-  const timestamp = now.toLocaleString();
-  const consoleCount = filtered.filter(e => e.type === 'console' || e.type === 'exception' || e.type === 'unhandledrejection').length;
-  const networkCount = filtered.filter(e => e.type === 'network').length;
+  const dateStr = now.toISOString().slice(0, 19).replace(/[:-]/g, '');
 
-  let rowsHtml = '';
-  filtered.forEach((error, i) => {
-    const typeLabel = getTypeLabel(error.type, error.level);
-    const time = new Date(error.timestamp).toLocaleString();
-    rowsHtml += `<tr>
-      <td>${i + 1}</td>
-      <td><span class="tag tag-${error.type}">${typeLabel}</span></td>
-      <td>${escapeHtml(error.message)}</td>
-      <td>${escapeHtml(error.url || '-')}</td>
-      <td>${error.type === 'network' && error.status ? error.status : '-'}</td>
-      <td>${time}</td>
-    </tr>`;
-  });
+  let content, filename, mimeType;
 
-  const html = `<!DOCTYPE html>
+  if (format === 'json') {
+    content = JSON.stringify(filtered, null, 2);
+    filename = `error-hunter-report-${dateStr}.json`;
+    mimeType = 'application/json';
+  } else {
+    const timestamp = now.toLocaleString();
+    const consoleCount = filtered.filter(e => e.type === 'console' || e.type === 'exception' || e.type === 'unhandledrejection').length;
+    const networkCount = filtered.filter(e => e.type === 'network').length;
+
+    let rowsHtml = '';
+    filtered.forEach((error, i) => {
+      const typeLabel = getTypeLabel(error.type, error.level);
+      const time = new Date(error.timestamp).toLocaleString();
+      rowsHtml += `<tr>
+        <td>${i + 1}</td>
+        <td><span class="tag tag-${error.type}">${typeLabel}</span></td>
+        <td>${escapeHtml(error.message)}</td>
+        <td>${escapeHtml(error.url || '-')}</td>
+        <td>${error.type === 'network' && error.status ? error.status : '-'}</td>
+        <td>${time}</td>
+      </tr>`;
+    });
+
+    content = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -535,58 +508,11 @@ function exportReport() {
   </table>
 </body>
 </html>`;
-
-  const dateStr = now.toISOString().slice(0, 19).replace(/[:-]/g, '');
-  downloadBlob(html, `error-hunter-report-${dateStr}.html`, 'text/html');
-}
-
-// ── Export JSON Report ──
-function exportReportJson() {
-  const filtered = getFilteredErrors();
-  if (filtered.length === 0) {
-    const orig = btnExportJson.textContent;
-    btnExportJson.textContent = 'No errors';
-    setTimeout(() => { btnExportJson.textContent = orig; }, 2000);
-    return;
+    filename = `error-hunter-report-${dateStr}.html`;
+    mimeType = 'text/html';
   }
 
-  const now = new Date();
-  const dateStr = now.toISOString().slice(0, 19).replace(/[:-]/g, '');
-  const json = JSON.stringify(filtered, null, 2);
-  downloadBlob(json, `error-hunter-report-${dateStr}.json`, 'application/json');
-}
-
-// ── Copy Selected Errors ──
-function updateCopySelectedButton() {
-  const checked = errorList.querySelectorAll('.error-checkbox:checked');
-  btnCopySelected.hidden = checked.length === 0;
-}
-
-async function copySelectedErrors() {
-  const checked = errorList.querySelectorAll('.error-checkbox:checked');
-  if (checked.length === 0) return;
-
-  const parts = [];
-  checked.forEach(cb => {
-    const idx = parseInt(cb.dataset.index);
-    if (idx >= 0 && idx < errors.length) {
-      parts.push(formatErrorForClipboard(errors[idx]));
-    }
-  });
-
-  const text = parts.join('\n---\n');
-  try {
-    await navigator.clipboard.writeText(text);
-    btnCopySelected.textContent = `Copied ${checked.length}`;
-    setTimeout(() => { btnCopySelected.textContent = 'Copy selected'; }, 1500);
-  } catch {
-    btnCopySelected.textContent = 'Copy failed';
-    setTimeout(() => { btnCopySelected.textContent = 'Copy selected'; }, 1500);
-  }
-
-  // Uncheck all
-  checked.forEach(cb => { cb.checked = false; });
-  updateCopySelectedButton();
+  downloadBlob(content, filename, mimeType);
 }
 
 // ── Utilities ──

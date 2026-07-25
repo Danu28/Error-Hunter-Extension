@@ -35,10 +35,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       handleStopMonitoring(sendResponse);
       return true;
 
-    case 'inject_page_world':
-      handleInjectPageWorld(sender, sendResponse);
-      return true;
-
     case 'clear_errors':
       handleClearErrors(sendResponse);
       return true;
@@ -150,18 +146,13 @@ async function handleClearErrors(sendResponse) {
   }
 }
 
-// Delete a single error by index (decrement count or remove)
+// Delete a single error by index
 async function handleDeleteError(message, sendResponse) {
   try {
     const result = await chrome.storage.session.get(STORAGE_KEY);
     const errors = result[STORAGE_KEY] || [];
     if (message.index >= 0 && message.index < errors.length) {
-      const err = errors[message.index];
-      if (err.count && err.count > 1) {
-        err.count--;
-      } else {
-        errors.splice(message.index, 1);
-      }
+      errors.splice(message.index, 1);
       await chrome.storage.session.set({ [STORAGE_KEY]: errors });
       await updateBadge(errors.length);
     }
@@ -170,253 +161,6 @@ async function handleDeleteError(message, sendResponse) {
     console.error('[Error Hunter] handleDeleteError FAILED:', err.message);
     sendResponse({ success: false, error: err.message });
   }
-}
-
-async function handleInjectPageWorld(sender, sendResponse) {
-  try {
-    if (!sender.tab) {
-      sendResponse({ success: false, error: 'no tab' });
-      return;
-    }
-    await chrome.scripting.executeScript({
-      target: { tabId: sender.tab.id },
-      world: "MAIN",
-      func: injectPageWorldErrorCapture,
-    });
-    sendResponse({ success: true });
-  } catch (err) {
-    console.error('[Error Hunter] handleInjectPageWorld FAILED:', err.message);
-    sendResponse({ success: false, error: err.message });
-  }
-}
-
-// Runs in page's MAIN world via executeScript (serialized via toString)
-function injectPageWorldErrorCapture() {
-  if (window.__eh_patched) return;
-  window.__eh_patched = true;
-
-  // Ring buffer for console log breadcrumbs (last 5 entries)
-  var __eh_logs = [];
-
-  function __eh_pushLog(msg) {
-    __eh_logs.push({ message: msg, timestamp: Date.now() });
-    if (__eh_logs.length > 5) __eh_logs.shift();
-  }
-
-  // Helper to reduce duplication in detail object construction
-  function makeDetail(type, extra) {
-    extra.type = type;
-    if (extra.url === undefined) extra.url = location.href;
-    extra.timestamp = Date.now();
-    extra.logs = __eh_logs.slice();
-    return extra;
-  }
-
-  var _origConsoleError = console.error;
-
-  console.error = function() {
-    _origConsoleError.apply(console, arguments);
-
-    var args = Array.prototype.slice.call(arguments);
-    var message = args.map(function(a) {
-      if (a instanceof Error) return a.message;
-      if (typeof a === 'object') {
-        try { return JSON.stringify(a); } catch(e) { return String(a); }
-      }
-      return String(a);
-    }).join(' ');
-
-    var stack = null;
-    for (var i = 0; i < args.length; i++) {
-      if (args[i] instanceof Error) {
-        stack = args[i].stack;
-        break;
-      }
-    }
-
-    window.dispatchEvent(new CustomEvent('eh-console-error', {
-      detail: makeDetail('console', { message: message, stack: stack })
-    }));
-  };
-
-  var _origConsoleWarn = console.warn;
-
-  console.warn = function() {
-    _origConsoleWarn.apply(console, arguments);
-
-    var args = Array.prototype.slice.call(arguments);
-    var message = '(warning) ' + args.map(function(a) {
-      if (a instanceof Error) return a.message;
-      if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
-      return String(a);
-    }).join(' ');
-
-    var stack = null;
-    for (var i = 0; i < args.length; i++) {
-      if (args[i] instanceof Error) { stack = args[i].stack; break; }
-    }
-
-    window.dispatchEvent(new CustomEvent('eh-console-warn', {
-      detail: makeDetail('console', { level: 'warn', message: message, stack: stack })
-    }));
-  };
-
-  var _origConsoleLog = console.log;
-
-  console.log = function() {
-    _origConsoleLog.apply(console, arguments);
-    var args = Array.prototype.slice.call(arguments);
-    var message = args.map(function(a) {
-      if (a instanceof Error) return a.message;
-      if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
-      return String(a);
-    }).join(' ');
-    __eh_pushLog(message);
-  };
-
-  var _origConsoleDebug = console.debug;
-
-  console.debug = function() {
-    _origConsoleDebug.apply(console, arguments);
-    var args = Array.prototype.slice.call(arguments);
-    var message = args.map(function(a) {
-      if (a instanceof Error) return a.message;
-      if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
-      return String(a);
-    }).join(' ');
-    __eh_pushLog('(debug) ' + message);
-  };
-
-  var _origConsoleInfo = console.info;
-
-  console.info = function() {
-    _origConsoleInfo.apply(console, arguments);
-    var args = Array.prototype.slice.call(arguments);
-    var message = args.map(function(a) {
-      if (a instanceof Error) return a.message;
-      if (typeof a === 'object') { try { return JSON.stringify(a); } catch(e) { return String(a); } }
-      return String(a);
-    }).join(' ');
-    __eh_pushLog('(info) ' + message);
-  };
-
-  window.addEventListener('error', function(e) {
-    window.dispatchEvent(new CustomEvent('eh-window-error', {
-      detail: makeDetail('exception', {
-        message: e.message || 'Unknown error',
-        stack: e.error ? e.error.stack : null,
-        url: e.filename || location.href,
-        line: e.lineno,
-        column: e.colno
-      })
-    }));
-  });
-
-  window.addEventListener('unhandledrejection', function(e) {
-    var reason = e.reason;
-    var message = reason && reason.message ? reason.message : String(reason);
-    var stack = reason && reason.stack ? reason.stack : null;
-    window.dispatchEvent(new CustomEvent('eh-unhandled-rejection', {
-      detail: makeDetail('unhandledrejection', { message: message, stack: stack })
-    }));
-  });
-
-  var _origFetch = window.fetch;
-  window.fetch = function() {
-    var args = arguments;
-    var url = '';
-    var method = 'GET';
-
-    if (args[0] instanceof Request) {
-      url = args[0].url;
-      method = args[0].method || 'GET';
-    } else if (typeof args[0] === 'string') {
-      url = args[0];
-      method = (args[1] && args[1].method) || 'GET';
-    }
-
-    var startTime = Date.now();
-    var requestBody = (args[1] && args[1].body) || '';
-
-    return _origFetch.apply(window, args).then(function(response) {
-      if (!response.ok && response.status >= 400) {
-        var respBodyPromise;
-        try {
-          respBodyPromise = response.clone().text();
-        } catch (e) {
-          respBodyPromise = Promise.resolve('');
-        }
-        respBodyPromise.then(function(text) {
-          var preview = text ? text.substring(0, 500) : '';
-          window.dispatchEvent(new CustomEvent('eh-network-error', {
-            detail: makeDetail('network', {
-              message: 'Fetch ' + method + ' ' + url + ' returned ' + response.status + ' ' + response.statusText,
-              url: url, method: method, status: response.status, statusText: response.statusText,
-              requestBody: requestBody,
-              responseBody: preview,
-              duration: Date.now() - startTime
-            })
-          }));
-        });
-      }
-      return response;
-    }).catch(function(err) {
-      window.dispatchEvent(new CustomEvent('eh-network-error', {
-        detail: makeDetail('network', {
-          message: 'Fetch ' + method + ' ' + url + ' failed: ' + err.message,
-          url: url, method: method, status: 0, statusText: 'Network Failure',
-          requestBody: requestBody,
-          responseBody: err.message,
-          duration: Date.now() - startTime
-        })
-      }));
-      throw err;
-    });
-  };
-
-  var _origXHROpen = XMLHttpRequest.prototype.open;
-  var _origXHRSend = XMLHttpRequest.prototype.send;
-
-  XMLHttpRequest.prototype.open = function(method, url) {
-    this._eh_method = method;
-    this._eh_url = (typeof url === 'string') ? url : (url ? String(url) : '');
-    return _origXHROpen.apply(this, arguments);
-  };
-
-  XMLHttpRequest.prototype.send = function() {
-    var xhr = this;
-    var startTime = Date.now();
-    var requestBody = arguments.length > 0 ? String(arguments[0]) : '';
-    xhr.addEventListener('loadend', function() {
-      if (xhr.status >= 400) {
-        var bodyText = xhr.responseText || '';
-        var preview = bodyText.substring(0, 500);
-        window.dispatchEvent(new CustomEvent('eh-network-error', {
-          detail: makeDetail('network', {
-            message: 'XHR ' + xhr._eh_method + ' ' + xhr._eh_url + ' returned ' + xhr.status + ' ' + xhr.statusText,
-            url: xhr._eh_url, method: xhr._eh_method,
-            status: xhr.status, statusText: xhr.statusText,
-            requestBody: requestBody,
-            responseBody: preview,
-            duration: Date.now() - startTime
-          })
-        }));
-      }
-    });
-    xhr.addEventListener('error', function() {
-      window.dispatchEvent(new CustomEvent('eh-network-error', {
-        detail: makeDetail('network', {
-          message: 'XHR ' + xhr._eh_method + ' ' + xhr._eh_url + ' failed: Network error',
-          url: xhr._eh_url, method: xhr._eh_method,
-          status: 0, statusText: 'Network Failure',
-          requestBody: requestBody,
-          responseBody: '',
-          duration: Date.now() - startTime
-        })
-      }));
-    });
-    return _origXHRSend.apply(xhr, arguments);
-  };
 }
 
 // Broadcast an action (start/stop) to all http tabs
@@ -435,21 +179,17 @@ async function broadcastToTabs(action) {
 
 // Pick badge color based on most severe error type in storage
 function getBadgeColor(errors) {
+  let hasWarn = false;
+  let hasNetwork = false;
   for (const e of errors) {
     if (e.type === 'exception' || e.type === 'unhandledrejection') {
-      return '#dc3545'; // red
+      return '#dc3545'; // red — highest priority
     }
+    if (e.type === 'console' && e.level === 'warn') hasWarn = true;
+    if (e.type === 'network') hasNetwork = true;
   }
-  for (const e of errors) {
-    if (e.type === 'console' && e.level === 'warn') {
-      return '#f0ad4e'; // orange
-    }
-  }
-  for (const e of errors) {
-    if (e.type === 'network') {
-      return '#3794ff'; // blue
-    }
-  }
+  if (hasWarn) return '#f0ad4e'; // orange
+  if (hasNetwork) return '#3794ff'; // blue
   return '#dc3545'; // default red
 }
 
