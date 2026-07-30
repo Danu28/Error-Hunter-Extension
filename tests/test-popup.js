@@ -109,6 +109,55 @@ function runTests() {
     assert.strictEqual(formatTime(now - 3590000), '59m ago');
   });
 
+  const getTypeLabel = extractFn(src, 'getTypeLabel');
+
+  test('generateBugReport includes heading and error count', () => {
+    const _generateBugReport = extractFn(src, 'generateBugReport');
+    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel);
+    const errors = [
+      { type: 'console', level: 'error', message: 'test error', timestamp: Date.now(), url: 'https://example.com/script.js' }
+    ];
+    const report = generateBugReport(errors);
+    assert.ok(report.includes('# Error Hunter Bug Report'));
+    assert.ok(report.includes('**Total Errors:** 1'));
+    assert.ok(report.includes('test error'));
+  });
+
+  test('generateBugReport includes network error details', () => {
+    const _generateBugReport = extractFn(src, 'generateBugReport');
+    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel);
+    const errors = [
+      { type: 'network', message: 'POST failed', timestamp: Date.now(), url: 'https://api.example.com/data', status: 500, statusText: 'Internal Server Error', method: 'POST', duration: 1200 }
+    ];
+    const report = generateBugReport(errors);
+    assert.ok(report.includes('500'));
+    assert.ok(report.includes('Internal Server Error'));
+    assert.ok(report.includes('POST'));
+    assert.ok(report.includes('1200ms'));
+  });
+
+  test('generateBugReport includes stack trace', () => {
+    const _generateBugReport = extractFn(src, 'generateBugReport');
+    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel);
+    const errors = [
+      { type: 'exception', message: 'TypeError: x is not a function', timestamp: Date.now(), stack: 'TypeError: x is not a function\n    at Object.<anonymous> (app.js:10:5)' }
+    ];
+    const report = generateBugReport(errors);
+    assert.ok(report.includes('TypeError'));
+    assert.ok(report.includes('```'));
+    assert.ok(report.includes('app.js:10:5'));
+  });
+
+  test('generateBugReport includes occurrence count', () => {
+    const _generateBugReport = extractFn(src, 'generateBugReport');
+    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel);
+    const errors = [
+      { type: 'console', level: 'error', message: 'repeated error', timestamp: Date.now(), count: 5 }
+    ];
+    const report = generateBugReport(errors);
+    assert.ok(report.includes('**Occurrences:** 5'));
+  });
+
   const failed = results.filter(r => !r.passed);
   const passed = results.filter(r => r.passed);
 

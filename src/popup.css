@@ -155,6 +155,15 @@ body {
   background-color: rgba(240, 173, 78, 0.15);
 }
 
+.btn-file-bug {
+  border-color: #8b5cf6;
+  color: #8b5cf6;
+}
+
+.btn-file-bug:hover {
+  background-color: rgba(139, 92, 246, 0.15);
+}
+
 /* ── Filters ── */
 .filters {
   display: flex;
@@ -230,6 +239,19 @@ body {
 }
 
 .expand-toggle:hover {
+  text-decoration: underline;
+}
+
+.sort-toggle {
+  background: none;
+  border: none;
+  color: var(--accent-blue);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+.sort-toggle:hover {
   text-decoration: underline;
 }
 
@@ -471,6 +493,28 @@ body {
   font-size: 11px;
   line-height: 1.5;
   color: var(--text-secondary);
+}
+
+.log-entry {
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 2px;
+  margin-bottom: 1px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.log-entry-log { color: var(--text-secondary); }
+.log-entry-info { color: var(--accent-blue); }
+.log-entry-debug { color: var(--text-muted); }
+.log-level {
+  font-weight: 600;
+  margin-right: 4px;
+}
+.log-time {
+  color: var(--text-muted);
+  margin-right: 8px;
 }
 
 /* ── Footer ── */

@@ -6,6 +6,8 @@ let searchText = '';
 let prevErrorCount = 0;
 let lastRenderKey = '';
 let expandedSet = new Set();
+let sortAscending = false;
+let trackedRepo = null;
 
 // ── DOM References ──
 const btnStart = document.getElementById('btnStart');
@@ -13,11 +15,14 @@ const btnStop = document.getElementById('btnStop');
 const btnClear = document.getElementById('btnClear');
 const btnExport = document.getElementById('btnExport');
 const btnExportJson = document.getElementById('btnExportJson');
+const btnBugReport = document.getElementById('btnBugReport');
 const statusIndicator = document.getElementById('statusIndicator');
 const errorList = document.getElementById('errorList');
 const errorCount = document.getElementById('errorCount');
 const expandToggle = document.getElementById('expandToggle');
 const searchInput = document.getElementById('searchInput');
+const sortToggle = document.getElementById('sortToggle');
+const btnFileBug = document.getElementById('btnFileBug');
 const filterBtns = document.querySelectorAll('.filter-btn');
 
 // ── Initialize ──
@@ -61,6 +66,8 @@ function setupEventListeners() {
   btnClear.addEventListener('click', clearErrors);
   btnExport.addEventListener('click', () => exportReport('html'));
   btnExportJson.addEventListener('click', () => exportReport('json'));
+  btnBugReport.addEventListener('click', copyBugReport);
+  btnFileBug.addEventListener('click', fileBugReport);
 
   // Event delegation for error list
   errorList.addEventListener('click', (e) => {
@@ -102,6 +109,12 @@ function setupEventListeners() {
     const hasExpanded = Array.from(items).some(item => item.classList.contains('expanded'));
     items.forEach(item => item.classList.toggle('expanded', !hasExpanded));
     expandToggle.textContent = hasExpanded ? 'Expand all' : 'Collapse all';
+  });
+
+  sortToggle.addEventListener('click', () => {
+    sortAscending = !sortAscending;
+    sortToggle.textContent = sortAscending ? '↑ Oldest' : '↓ Newest';
+    renderErrors();
   });
 
   searchInput.addEventListener('input', () => {
@@ -183,6 +196,10 @@ function updateUI(isMonitoring) {
 function renderErrors() {
   const filtered = getFilteredErrors();
 
+  // Sort locally (does not affect getFilteredErrors used by exports)
+  if (sortAscending) filtered.sort((a, b) => a.timestamp - b.timestamp);
+  else filtered.sort((a, b) => b.timestamp - a.timestamp);
+
   // Build summary with breakdown
   const consoleCount = filtered.filter(e => (e.type === 'console' || e.type === 'exception' || e.type === 'unhandledrejection') && e.level !== 'warn').length;
   const warnCount = filtered.filter(e => e.level === 'warn').length;
@@ -197,7 +214,7 @@ function renderErrors() {
 
   // Skip DOM rebuild if filtered list hasn't changed
   const lastTimestamp = filtered.length > 0 ? filtered[filtered.length - 1].timestamp : '';
-  const key = filtered.length + ':' + consoleCount + ':' + warnCount + ':' + networkCount + ':' + lastTimestamp;
+  const key = filtered.length + ':' + consoleCount + ':' + warnCount + ':' + networkCount + ':' + lastTimestamp + ':' + sortAscending;
   if (key === lastRenderKey) return;
   lastRenderKey = key;
 
@@ -275,14 +292,6 @@ function buildErrorItem(error, index) {
         </span>
       `;
     }
-
-    if (error.duration) {
-      metaHtml += `
-        <span class="error-meta-item">
-          <span class="label">took</span> ${error.duration}ms
-        </span>
-      `;
-    }
   }
 
   // Details section (shown on expand)
@@ -314,6 +323,20 @@ function buildErrorItem(error, index) {
     `;
   }
 
+  // Log context (from ring buffer)
+  if (error.logContext && error.logContext.length > 0) {
+    detailsHtml += `
+      <div class="error-details-section">
+        <div class="error-details-label">Log Context (last ${error.logContext.length} entries)</div>
+        <div class="error-details-content">${error.logContext.map(entry => {
+          const levelClass = 'log-' + entry.level;
+          const time = new Date(entry.timestamp).toLocaleTimeString();
+          return `<div class="log-entry log-entry-${levelClass}"><span class="log-level">[${entry.level.toUpperCase()}]</span> <span class="log-time">${time}</span> ${escapeHtml(entry.message)}</div>`;
+        }).join('')}</div>
+      </div>
+    `;
+  }
+
   // Network details
   if (error.type === 'network') {
     if (error.method) {
@@ -329,30 +352,6 @@ function buildErrorItem(error, index) {
         <div class="error-details-section">
           <div class="error-details-label">HTTP Status</div>
           <div class="error-details-content">${error.status} ${escapeHtml(error.statusText || '')}</div>
-        </div>
-      `;
-    }
-    if (error.duration) {
-      detailsHtml += `
-        <div class="error-details-section">
-          <div class="error-details-label">Duration</div>
-          <div class="error-details-content">${error.duration}ms</div>
-        </div>
-      `;
-    }
-    if (error.requestBody) {
-      detailsHtml += `
-        <div class="error-details-section">
-          <div class="error-details-label">Request Body</div>
-          <div class="error-details-content"><pre class="error-stack">${escapeHtml(error.requestBody.substring(0, 200))}</pre></div>
-        </div>
-      `;
-    }
-    if (error.responseBody) {
-      detailsHtml += `
-        <div class="error-details-section">
-          <div class="error-details-label">Response Body Preview</div>
-          <div class="error-details-content"><pre class="error-stack">${escapeHtml(error.responseBody.substring(0, 200))}</pre></div>
         </div>
       `;
     }
@@ -422,9 +421,6 @@ function formatErrorForClipboard(error) {
   if (error.type === 'network') {
     if (error.method) lines.push(`Method: ${error.method}`);
     if (error.status) lines.push(`Status: ${error.status} ${error.statusText || ''}`);
-    if (error.duration) lines.push(`Duration: ${error.duration}ms`);
-    if (error.requestBody) lines.push(`Request Body: ${error.requestBody.substring(0, 200)}`);
-    if (error.responseBody) lines.push(`Response Body: ${error.responseBody.substring(0, 200)}`);
   }
   return lines.join('\n');
 }
@@ -513,6 +509,91 @@ function exportReport(format) {
   }
 
   downloadBlob(content, filename, mimeType);
+}
+
+// ── Bug Report ──
+async function copyBugReport() {
+  const filtered = getFilteredErrors();
+  if (filtered.length === 0) {
+    const orig = btnBugReport.textContent;
+    btnBugReport.textContent = 'No errors';
+    setTimeout(() => { btnBugReport.textContent = orig; }, 2000);
+    return;
+  }
+
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const pageUrl = tabs[0]?.url || '';
+  const text = generateBugReport(filtered, pageUrl);
+  try {
+    await navigator.clipboard.writeText(text);
+    btnBugReport.textContent = 'Copied!';
+    setTimeout(() => { btnBugReport.textContent = 'Copy Report'; }, 2000);
+  } catch {
+    btnBugReport.textContent = 'Failed';
+    setTimeout(() => { btnBugReport.textContent = 'Copy Report'; }, 2000);
+  }
+}
+
+async function fileBugReport() {
+  const filtered = getFilteredErrors();
+  if (filtered.length === 0) {
+    const orig = btnFileBug.textContent;
+    btnFileBug.textContent = 'No errors';
+    setTimeout(() => { btnFileBug.textContent = 'File Bug'; }, 2000);
+    return;
+  }
+  if (!trackedRepo) {
+    trackedRepo = prompt('Enter GitHub repo (e.g., owner/repo):');
+    if (!trackedRepo) return;
+  }
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const pageUrl = tabs[0]?.url || '';
+  const body = generateBugReport(filtered, pageUrl, getTypeLabel);
+  const title = `Error Hunter Report: ${filtered.length} error${filtered.length > 1 ? 's' : ''}`;
+  const url = `https://github.com/${trackedRepo}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
+  chrome.tabs.create({ url });
+}
+
+function generateBugReport(errors, pageUrl, typeLabelFn) {
+  const now = new Date();
+  const lines = [];
+  lines.push('# Error Hunter Bug Report');
+  lines.push('');
+  lines.push('**Page URL:** ' + (pageUrl || errors[0]?.url || 'N/A') + '  ');
+  lines.push('**Reported:** ' + now.toLocaleString() + '  ');
+  lines.push('**Total Errors:** ' + errors.length);
+  lines.push('');
+
+  lines.push('## Errors');
+  lines.push('');
+
+  const labelFn = typeLabelFn || getTypeLabel;
+  errors.forEach((error, i) => {
+    const typeLabel = labelFn(error.type, error.level, true);
+    lines.push('### ' + (i + 1) + '. ' + typeLabel);
+    lines.push('');
+    lines.push('- **Message:** ' + (error.message || '(empty)'));
+    if (error.url) lines.push('- **Source:** ' + error.url);
+    lines.push('- **Time:** ' + new Date(error.timestamp).toLocaleString());
+    if (error.count && error.count > 1) lines.push('- **Occurrences:** ' + error.count);
+
+    if (error.type === 'network') {
+      if (error.status) lines.push('- **Status:** ' + error.status + ' ' + (error.statusText || ''));
+      if (error.method) lines.push('- **Method:** ' + error.method);
+      if (error.duration) lines.push('- **Duration:** ' + error.duration + 'ms');
+    }
+
+    if (error.stack) {
+      lines.push('- **Stack:**');
+      lines.push('  ```');
+      lines.push('  ' + error.stack.split('\n').join('\n  '));
+      lines.push('  ```');
+    }
+
+    lines.push('');
+  });
+
+  return lines.join('\n');
 }
 
 // ── Utilities ──

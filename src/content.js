@@ -7,7 +7,9 @@ let originalConsoleError = null;
 let originalConsoleWarn = null;
 
 let pageWorldHandler = null;
-const PAGE_WORLD_EVENTS = ['eh-console-error', 'eh-console-warn', 'eh-window-error', 'eh-unhandled-rejection', 'eh-network-error'];
+const PAGE_WORLD_EVENTS = ['eh-console-error', 'eh-console-warn', 'eh-console-log', 'eh-console-info', 'eh-console-debug', 'eh-window-error', 'eh-unhandled-rejection', 'eh-network-error'];
+const logBuffer = [];
+const MAX_LOG_ENTRIES = 200;
 
 // Listen for start/stop commands from service worker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -36,7 +38,17 @@ function reportError(error) {
 // ── Page-World Event Bridge ──
 function addPageWorldListeners() {
   if (pageWorldHandler) return;
-  pageWorldHandler = (e) => { if (monitoring) reportError(e.detail); };
+  pageWorldHandler = (e) => {
+    if (!monitoring) return;
+    const d = e.detail;
+    if (d.level === 'log' || d.level === 'info' || d.level === 'debug') {
+      logBuffer.push({ message: d.message, level: d.level, timestamp: d.timestamp });
+      if (logBuffer.length > MAX_LOG_ENTRIES) logBuffer.shift();
+    } else {
+      d.logContext = logBuffer.slice(-20);
+      reportError(d);
+    }
+  };
   for (const name of PAGE_WORLD_EVENTS) {
     window.addEventListener(name, pageWorldHandler);
   }
@@ -93,43 +105,6 @@ function unpatchConsole(methodName) {
   }
 }
 
-// ── Uncaught Exception Interception ──
-function addErrorListeners() {
-  window.addEventListener('error', handleWindowError);
-  window.addEventListener('unhandledrejection', handleUnhandledRejection);
-}
-
-function removeErrorListeners() {
-  window.removeEventListener('error', handleWindowError);
-  window.removeEventListener('unhandledrejection', handleUnhandledRejection);
-}
-
-function handleWindowError(event) {
-  reportError({
-    type: 'exception',
-    message: event.message || 'Unknown error',
-    stack: event.error?.stack || null,
-    url: event.filename || window.location.href,
-    line: event.lineno,
-    column: event.colno,
-    timestamp: Date.now()
-  });
-}
-
-function handleUnhandledRejection(event) {
-  const reason = event.reason;
-  const message = reason?.message || reason?.toString() || 'Unhandled Promise rejection';
-  const stack = reason?.stack || null;
-
-  reportError({
-    type: 'unhandledrejection',
-    message,
-    stack,
-    url: window.location.href,
-    timestamp: Date.now()
-  });
-}
-
 // ── Start / Stop ──
 function startMonitoring() {
   if (monitoring) {
@@ -139,7 +114,6 @@ function startMonitoring() {
 
   patchConsole('error', '');
   patchConsole('warn', '(warning) ', 'warn');
-  addErrorListeners();
   addPageWorldListeners();
 
   chrome.runtime.sendMessage({ action: 'inject_page_world' }).catch((err) => {
@@ -157,7 +131,6 @@ function stopMonitoring() {
 
   unpatchConsole('error');
   unpatchConsole('warn');
-  removeErrorListeners();
   removePageWorldListeners();
 }
 

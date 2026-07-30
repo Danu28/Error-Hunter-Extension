@@ -48,11 +48,11 @@ function runTests() {
     assert.ok(src.includes("action: 'inject_page_world'"));
   });
 
-  test('content.js has error and rejection listeners', () => {
-    assert.ok(src.includes('function addErrorListeners'));
-    assert.ok(src.includes('function removeErrorListeners'));
-    assert.ok(src.includes('function handleWindowError'));
-    assert.ok(src.includes('function handleUnhandledRejection'));
+  test('content.js delegates error/rejection to page-world bridge (no redundant listeners)', () => {
+    assert.ok(!src.includes('function addErrorListeners'));
+    assert.ok(!src.includes('function removeErrorListeners'));
+    assert.ok(!src.includes('function handleWindowError'));
+    assert.ok(!src.includes('function handleUnhandledRejection'));
   });
 
   const failed = results.filter(r => !r.passed);

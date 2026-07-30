@@ -117,6 +117,26 @@ function injectPageWorldErrorCapture() {
     }));
   };
 
+  // Console.log, info, debug capture for log context
+  function _patchConsoleLog(method, eventName, level) {
+    var orig = console[method];
+    console[method] = function () {
+      orig.apply(console, arguments);
+      var args = Array.prototype.slice.call(arguments);
+      var message = args.map(function (a) {
+        if (a instanceof Error) return a.message;
+        if (typeof a === 'object') { try { return JSON.stringify(a); } catch (e) { return String(a); } }
+        return String(a);
+      }).join(' ');
+      window.dispatchEvent(new CustomEvent(eventName, {
+        detail: makeDetail('console', { level: level, message: message })
+      }));
+    };
+  }
+  _patchConsoleLog('log', 'eh-console-log', 'log');
+  _patchConsoleLog('info', 'eh-console-info', 'info');
+  _patchConsoleLog('debug', 'eh-console-debug', 'debug');
+
   // Window error and rejection
   window.addEventListener('error', function (e) {
     window.dispatchEvent(new CustomEvent('eh-window-error', {
