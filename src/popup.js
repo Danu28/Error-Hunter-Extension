@@ -7,7 +7,6 @@ let prevErrorCount = 0;
 let lastRenderKey = '';
 let expandedSet = new Set();
 let sortAscending = false;
-let trackedRepo = null;
 
 // ── DOM References ──
 const btnStart = document.getElementById('btnStart');
@@ -323,6 +322,22 @@ function buildErrorItem(error, index) {
     `;
   }
 
+  // User actions (before error)
+  if (error.userActions && error.userActions.length > 0) {
+    detailsHtml += `
+      <div class="error-details-section">
+        <div class="error-details-label">User Actions (before error)</div>
+        <div class="error-details-content">${error.userActions.map(entry => {
+          const time = new Date(entry.timestamp).toLocaleTimeString();
+          const desc = entry.actionType === 'click'
+            ? 'Clicked "' + (entry.text || entry.tag) + '"'
+            : 'Entered "' + (entry.value || '') + '" in ' + (entry.name || entry.tag || 'input');
+          return `<div class="log-entry"><span class="log-time">${time}</span> ${escapeHtml(desc)}</div>`;
+        }).join('')}</div>
+      </div>
+    `;
+  }
+
   // Log context (from ring buffer)
   if (error.logContext && error.logContext.length > 0) {
     detailsHtml += `
@@ -539,19 +554,119 @@ async function fileBugReport() {
   if (filtered.length === 0) {
     const orig = btnFileBug.textContent;
     btnFileBug.textContent = 'No errors';
-    setTimeout(() => { btnFileBug.textContent = 'File Bug'; }, 2000);
+    setTimeout(() => { btnFileBug.textContent = 'Edit Report'; }, 2000);
     return;
-  }
-  if (!trackedRepo) {
-    trackedRepo = prompt('Enter GitHub repo (e.g., owner/repo):');
-    if (!trackedRepo) return;
   }
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const pageUrl = tabs[0]?.url || '';
-  const body = generateBugReport(filtered, pageUrl, getTypeLabel);
-  const title = `Error Hunter Report: ${filtered.length} error${filtered.length > 1 ? 's' : ''}`;
-  const url = `https://github.com/${trackedRepo}/issues/new?title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`;
-  chrome.tabs.create({ url });
+
+  // Auto-generate summary from the most severe error
+  const primary = filtered.find(e => e.type === 'exception' || e.type === 'unhandledrejection') ||
+                  filtered.find(e => e.type === 'network') ||
+                  filtered[0];
+  let summary = primary.message;
+  if (summary.length > 80) summary = summary.substring(0, 77) + '...';
+
+  const now = new Date().toLocaleString();
+  const lines = [];
+  lines.push('# Bug Report: ' + summary);
+  lines.push('');
+  lines.push('## Environment');
+  lines.push('');
+  lines.push('- **Page URL:** ' + (pageUrl || filtered[0]?.url || 'N/A'));
+  lines.push('- **Reported:** ' + now);
+  lines.push('- **Total Errors:** ' + filtered.length);
+  lines.push('');
+  lines.push('## Steps to Reproduce');
+  lines.push('1. Go to ' + truncateUrl(pageUrl || filtered[0]?.url || ''));
+  lines.push('2. ');
+  lines.push('3. ');
+  lines.push('');
+  lines.push('## Expected Behavior');
+  lines.push('');
+  lines.push('');
+  lines.push('## Actual Behavior');
+  lines.push('');
+  lines.push('While performing the steps above, the following error' + (filtered.length > 1 ? 's were' : ' was') + ' captured:');
+  filtered.forEach(function (e) {
+    var label = getTypeLabel(e.type, e.level, true);
+    var msg = e.message || '(empty)';
+    lines.push('- **' + label + ':** ' + msg);
+  });
+  lines.push('');
+  lines.push('## Evidence');
+  lines.push('');
+  filtered.forEach(function (e, i) {
+    var label = getTypeLabel(e.type, e.level, true);
+    lines.push('### ' + (i + 1) + '. ' + label);
+    lines.push('');
+    lines.push('- **Message:** ' + (e.message || '(empty)'));
+    if (e.count && e.count > 1) lines.push('- **Occurrences:** ' + e.count);
+    if (e.url) lines.push('- **Source:** ' + e.url);
+    lines.push('- **Time:** ' + new Date(e.timestamp).toLocaleString());
+    if (e.type === 'network') {
+      if (e.method) lines.push('- **Method:** ' + e.method);
+      if (e.status) lines.push('- **Status:** ' + e.status + ' ' + (e.statusText || ''));
+    }
+    if (e.stack) {
+      lines.push('- **Stack:**');
+      lines.push('  ```');
+      lines.push('  ' + e.stack.split('\n').join('\n  '));
+      lines.push('  ```');
+    }
+    if (e.userActions && e.userActions.length > 0) {
+      lines.push('- **User actions before error:**');
+      e.userActions.forEach(function (entry) {
+        var time = new Date(entry.timestamp).toLocaleTimeString();
+        var desc = entry.actionType === 'click'
+          ? 'Clicked "' + (entry.text || entry.tag) + '"'
+          : 'Entered "' + (entry.value || '') + '" in "' + (entry.name || entry.tag || 'input') + '"';
+        lines.push('  - ' + time + ' - ' + desc);
+      });
+    }
+    if (e.logContext && e.logContext.length > 0) {
+      lines.push('- **Log context (before error):**');
+      e.logContext.forEach(function (entry) {
+        var time = new Date(entry.timestamp).toLocaleTimeString();
+        lines.push('  - `[' + entry.level.toUpperCase() + '][' + time + ']` ' + entry.message);
+      });
+    }
+    lines.push('');
+  });
+
+  if (filtered.some(function (e) { return e.logContext && e.logContext.length > 0; })) {
+    lines.push('> **Note:** The "Log context" entries above show what the application logged in the console just before each error. Use these as hints to reconstruct the steps.');
+    lines.push('');
+  }
+
+  var markdown = lines.join('\n');
+
+  var html = '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<title>Bug Report</title>\n<style>\n'
+    + '  *{margin:0;padding:0;box-sizing:border-box}'
+    + '  body{font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,sans-serif;background:#1e1e1e;color:#ccc;padding:24px}'
+    + '  h1{color:#fff;margin-bottom:16px;font-size:20px}'
+    + '  .bar{display:flex;gap:8px;margin-bottom:12px}'
+    + '  .btn{padding:8px 20px;border:1px solid #3c3c3c;border-radius:4px;font-size:13px;cursor:pointer;background:#2d2d2d;color:#ccc;font-family:inherit}'
+    + '  .btn:hover{background:#333}'
+    + '  .btn-copy{border-color:#3794ff;color:#3794ff}'
+    + '  .btn-copy:hover{background:rgba(55,148,255,0.15)}'
+    + '  textarea{width:100%;height:calc(100vh - 100px);background:#252526;color:#ccc;border:1px solid #3c3c3c;border-radius:6px;padding:16px;font-family:\'Consolas\',monospace;font-size:13px;line-height:1.5;resize:vertical;outline:none}'
+    + '  textarea:focus{border-color:#3794ff}'
+    + '</style>\n</head>\n<body>\n<h1>Bug Report</h1>\n<div class="bar">\n'
+    + '<button class="btn btn-copy" onclick="copyReport()">Copy to Clipboard</button>\n</div>\n'
+    + '<textarea id="r" spellcheck="false">' + escapeHtml(markdown) + '</textarea>\n'
+    + '<script>\nfunction copyReport(){\n'
+    + '  var t=document.getElementById(\'r\');\n'
+    + '  t.select();\n'
+    + '  navigator.clipboard.writeText(t.value).then(function(){\n'
+    + '    var b=document.querySelector(\'.btn-copy\');\n'
+    + '    b.textContent=\'Copied!\';\n'
+    + '    setTimeout(function(){b.textContent=\'Copy to Clipboard\';},2000);\n'
+    + '  });\n'
+    + '}\n<\/script>\n</body>\n</html>';
+
+  const blob = new Blob([html], { type: 'text/html' });
+  chrome.tabs.create({ url: URL.createObjectURL(blob) });
 }
 
 function generateBugReport(errors, pageUrl, typeLabelFn) {

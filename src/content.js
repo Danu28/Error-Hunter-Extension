@@ -7,9 +7,11 @@ let originalConsoleError = null;
 let originalConsoleWarn = null;
 
 let pageWorldHandler = null;
-const PAGE_WORLD_EVENTS = ['eh-console-error', 'eh-console-warn', 'eh-console-log', 'eh-console-info', 'eh-console-debug', 'eh-window-error', 'eh-unhandled-rejection', 'eh-network-error'];
+const PAGE_WORLD_EVENTS = ['eh-console-error', 'eh-console-warn', 'eh-console-log', 'eh-console-info', 'eh-console-debug', 'eh-window-error', 'eh-unhandled-rejection', 'eh-network-error', 'eh-user-action'];
 const logBuffer = [];
 const MAX_LOG_ENTRIES = 200;
+const userActionBuffer = [];
+const MAX_USER_ACTIONS = 50;
 
 // Listen for start/stop commands from service worker
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -44,8 +46,12 @@ function addPageWorldListeners() {
     if (d.level === 'log' || d.level === 'info' || d.level === 'debug') {
       logBuffer.push({ message: d.message, level: d.level, timestamp: d.timestamp });
       if (logBuffer.length > MAX_LOG_ENTRIES) logBuffer.shift();
+    } else if (d.actionType === 'click' || d.actionType === 'input') {
+      userActionBuffer.push({ actionType: d.actionType, tag: d.tag, text: d.text, name: d.name, value: d.value, id: d.id, timestamp: d.timestamp || Date.now() });
+      if (userActionBuffer.length > MAX_USER_ACTIONS) userActionBuffer.shift();
     } else {
       d.logContext = logBuffer.slice(-20);
+      d.userActions = userActionBuffer.slice(-10);
       reportError(d);
     }
   };

@@ -216,6 +216,32 @@ function injectPageWorldErrorCapture() {
     });
     return _origXHRSend.apply(xhr, arguments);
   };
+
+  // User action capture for bug report steps
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    var tag = t.tagName || '';
+    var actionable = tag === 'BUTTON' || tag === 'A' ||
+      (tag === 'INPUT' && /submit|button|checkbox|radio|text|email|password|search|number|url|tel/.test(t.type)) ||
+      tag === 'SELECT' || tag === 'TEXTAREA' ||
+      t.getAttribute('role') === 'button' ||
+      t.getAttribute('role') === 'tab' ||
+      t.getAttribute('role') === 'menuitem';
+    if (!actionable) return;
+    var text = (t.textContent || t.value || t.title || t.alt || '').trim().substring(0, 80);
+    window.dispatchEvent(new CustomEvent('eh-user-action', {
+      detail: { actionType: 'click', tag: tag, text: text, id: t.id || '', name: t.name || '' }
+    }));
+  }, true);
+
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t || (t.tagName !== 'INPUT' && t.tagName !== 'TEXTAREA' && t.tagName !== 'SELECT')) return;
+    var val = t.value ? t.value.toString().substring(0, 100) : '';
+    window.dispatchEvent(new CustomEvent('eh-user-action', {
+      detail: { actionType: 'input', tag: t.tagName, name: t.name || t.id || '', value: val, id: t.id || '' }
+    }));
+  }, true);
 }
 
 // Store a new error and update badge

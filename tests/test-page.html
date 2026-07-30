@@ -1,283 +1,272 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Error Hunter - Manual Test Page</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #1e1e1e;
-      color: #cccccc;
-      padding: 24px;
-      max-width: 800px;
-      margin: 0 auto;
-    }
-    h1 { font-size: 24px; margin-bottom: 8px; color: #ffffff; }
-    h2 { font-size: 16px; margin: 24px 0 8px; color: #3794ff; border-bottom: 1px solid #3c3c3c; padding-bottom: 4px; }
-    p.subtitle { color: #999; margin-bottom: 24px; font-size: 14px; }
-    .card {
-      background: #252526;
-      border: 1px solid #3c3c3c;
-      border-radius: 6px;
-      padding: 16px;
-      margin-bottom: 12px;
-    }
-    .card p { margin-bottom: 8px; font-size: 13px; color: #999; }
-    .card p.desc { font-size: 12px; color: #666; }
-    .btn {
-      display: inline-block;
-      padding: 8px 16px;
-      border: 1px solid #3c3c3c;
-      border-radius: 4px;
-      font-size: 13px;
-      cursor: pointer;
-      background: #2d2d2d;
-      color: #cccccc;
-      transition: all 0.15s;
-      margin-right: 8px;
-      margin-bottom: 8px;
-    }
-    .btn:hover { background: #333; }
-    .btn.console { border-color: #3794ff; color: #3794ff; }
-    .btn.console:hover { background: rgba(55,148,255,0.15); }
-    .btn.network { border-color: #f0ad4e; color: #f0ad4e; }
-    .btn.network:hover { background: rgba(240,173,78,0.15); }
-    .btn.exception { border-color: #dc3545; color: #dc3545; }
-    .btn.exception:hover { background: rgba(220,53,69,0.15); }
-    .btn.clear { border-color: #666; color: #999; margin-top: 16px; }
-    .status { margin-top: 24px; padding: 12px; background: #1e1e1e; border: 1px solid #3c3c3c; border-radius: 4px; font-size: 12px; color: #666; }
-    .status.success { border-color: #28a745; color: #28a745; }
-    .status.error { border-color: #dc3545; color: #dc3545; }
-    #output { 
-      margin-top: 12px; padding: 12px; background: #1e1e1e; border: 1px solid #3c3c3c; 
-      border-radius: 4px; font-family: 'Consolas', monospace; font-size: 12px; color: #999;
-      max-height: 300px; overflow-y: auto; white-space: pre-wrap;
-    }
-    .steps { list-style: decimal; padding-left: 20px; font-size: 13px; color: #999; }
-    .steps li { margin-bottom: 6px; }
-    .steps li.done { color: #28a745; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px; font-weight: 600; }
-    .badge.console { background: rgba(55,148,255,0.15); color: #3794ff; }
-    .badge.network { background: rgba(240,173,78,0.15); color: #f0ad4e; }
-    .badge.exception { background: rgba(220,53,69,0.15); color: #dc3545; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Dashboard — Test Environment</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#1e1e1e;color:#ccc;padding:24px;max-width:960px;margin:0 auto}
+  h1{font-size:22px;color:#fff;margin-bottom:4px}
+  .subtitle{color:#666;font-size:13px;margin-bottom:24px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+  .card{background:#252526;border:1px solid #3c3c3c;border-radius:6px;padding:16px}
+  .card h2{font-size:14px;color:#3794ff;margin-bottom:12px;padding-bottom:4px;border-bottom:1px solid #3c3c3c}
+  .card h2.danger{color:#dc3545}
+  .card h2.warning{color:#f0ad4e}
+  .card p{font-size:12px;color:#666;margin-bottom:8px}
+  label{display:block;font-size:12px;color:#999;margin-bottom:4px}
+  input[type=text],input[type=password],input[type=search]{width:100%;padding:7px 10px;border:1px solid #3c3c3c;border-radius:4px;background:#1e1e1e;color:#ccc;font-size:13px;outline:none;margin-bottom:8px}
+  input:focus{border-color:#3794ff}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+  .btn{padding:7px 16px;border:1px solid #3c3c3c;border-radius:4px;font-size:12px;cursor:pointer;background:#2d2d2d;color:#ccc;font-family:inherit;transition:all .1s}
+  .btn:hover{background:#333}
+  .btn-primary{border-color:#3794ff;color:#3794ff}
+  .btn-primary:hover{background:rgba(55,148,255,.15)}
+  .btn-danger{border-color:#dc3545;color:#dc3545}
+  .btn-danger:hover{background:rgba(220,53,69,.15)}
+  .btn-warning{border-color:#f0ad4e;color:#f0ad4e}
+  .btn-warning:hover{background:rgba(240,173,78,.15)}
+  .btn-sm{padding:4px 10px;font-size:11px}
+  .tag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600}
+  .tag-blue{background:rgba(55,148,255,.15);color:#3794ff}
+  .tag-red{background:rgba(220,53,69,.15);color:#dc3545}
+  .tag-orange{background:rgba(240,173,78,.15);color:#f0ad4e}
+  .tag-green{background:rgba(40,167,69,.15);color:#28a745}
+  #log{margin-top:12px;padding:12px;background:#1e1e1e;border:1px solid #3c3c3c;border-radius:4px;font-family:Consolas,monospace;font-size:12px;color:#999;max-height:200px;overflow-y:auto;white-space:pre-wrap;line-height:1.6}
+  #log .ok{color:#28a745}
+  #log .err{color:#dc3545}
+  #log .info{color:#3794ff}
+  .toast{position:fixed;top:16px;right:16px;padding:10px 16px;border-radius:4px;font-size:13px;z-index:999;animation:fade .3s}
+  .toast.ok{background:rgba(40,167,69,.2);border:1px solid #28a745;color:#28a745}
+  .toast.err{background:rgba(220,53,69,.2);border:1px solid #dc3545;color:#dc3545}
+  @keyframes fade{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+</style>
 </head>
 <body>
-  <h1>🧪 Error Hunter — Test Page</h1>
-  <p class="subtitle">Use this page to manually verify Error Hunter captures all error types.</p>
 
-  <h2>Test Instructions</h2>
+<h1>Admin Dashboard</h1>
+<p class="subtitle">Test environment — every interaction is designed to trigger errors. Use with Error Hunter.</p>
+
+<div class="grid">
+
+  <!-- LOGIN FORM -->
   <div class="card">
-    <ol class="steps" id="steps">
-      <li>Open <strong>Chrome DevTools</strong> (F12) → Console tab</li>
-      <li>Click the <strong>Error Hunter icon</strong> in the toolbar</li>
-      <li>Click <strong>"Start Monitoring"</strong></li>
-      <li>Click each button below in order</li>
-      <li>Open the Error Hunter popup and verify each error appears</li>
-      <li>Try the <strong>Console</strong> and <strong>Network</strong> filter tabs</li>
-      <li>Click individual errors to expand and see details</li>
-      <li>Click <strong>"Clear"</strong> to verify it empties the list</li>
-    </ol>
+    <h2>Sign In</h2>
+    <p>Enter credentials and click Sign In. The server always returns 500.</p>
+    <label for="username">Username</label>
+    <input type="text" id="username" placeholder="Enter username" value="admin">
+    <label for="password">Password</label>
+    <input type="password" id="password" placeholder="Enter password" value="password123">
+    <div class="row">
+      <button class="btn btn-primary" id="btnLogin">Sign In</button>
+      <button class="btn btn-sm" id="btnLoginClear">Clear</button>
+    </div>
   </div>
 
-  <h2>1. Console Errors</h2>
+  <!-- SEARCH -->
   <div class="card">
-    <p>These buttons trigger <code>console.error()</code> calls with various argument types.</p>
-    <button class="btn console" onclick="triggerConsoleError()">console.error("simple message")</button>
-    <button class="btn console" onclick="triggerConsoleErrorWithObject()">console.error("with object")</button>
-    <button class="btn console" onclick="triggerConsoleErrorWithError()">console.error("with Error object")</button>
-    <button class="btn console" onclick="triggerConsoleErrorMultiple()">console.error("multiple args")</button>
-    <p class="desc"><span class="badge console">console</span> Each should appear as a <strong>JS Error</strong> in the popup.</p>
+    <h2 class="warning">Search Users</h2>
+    <p>Searching with an empty query triggers a console error.</p>
+    <input type="search" id="searchInput" placeholder="Search users...">
+    <div class="row">
+      <button class="btn btn-warning" id="btnSearch">Search</button>
+    </div>
+    <div id="searchResults" style="font-size:12px;color:#666;margin-top:8px"></div>
   </div>
 
-  <h2>2. Uncaught Exceptions</h2>
+  <!-- DATA LOADING -->
   <div class="card">
-    <p>These trigger <code>window.onerror</code> via thrown exceptions.</p>
-    <button class="btn exception" onclick="triggerUncaughtException()">throw new Error("runtime failure")</button>
-    <button class="btn exception" onclick="triggerTypeError()">TypeError: undefined is not a function</button>
-    <p class="desc"><span class="badge exception">exception</span> Should appear as a <strong>JS Error</strong> with line/column info.</p>
+    <h2 class="danger">Data Loading</h2>
+    <p>These buttons trigger failed network requests.</p>
+    <div class="row">
+      <button class="btn btn-danger btn-sm" id="btnLoadUsers">Load Users</button>
+      <button class="btn btn-danger btn-sm" id="btnLoadOrders">Load Orders</button>
+      <button class="btn btn-danger btn-sm" id="btnLoadConfig">Load Config</button>
+    </div>
+    <div id="dataStatus" style="font-size:12px;color:#666;margin-top:8px"></div>
   </div>
 
-  <h2>3. Unhandled Promise Rejections</h2>
+  <!-- EXCEPTIONS -->
   <div class="card">
-    <p>These trigger <code>unhandledrejection</code> events.</p>
-    <button class="btn exception" onclick="triggerPromiseRejection()">Promise.reject("simple rejection")</button>
-    <button class="btn exception" onclick="triggerPromiseRejectionWithError()">Promise.reject(new Error("async failure"))</button>
-    <button class="btn exception" onclick="triggerPromiseRejectionNested()">Nested .then() rejection</button>
-    <p class="desc"><span class="badge exception">rejection</span> Should appear as a <strong>JS Error</strong> in the popup.</p>
+    <h2 class="danger">Error Triggers</h2>
+    <p>Direct triggers for each error type.</p>
+    <div class="row">
+      <button class="btn btn-sm" id="btnConsoleError">console.error</button>
+      <button class="btn btn-sm" id="btnConsoleWarn">console.warn</button>
+      <button class="btn btn-sm" id="btnConsoleLog">console.log</button>
+      <button class="btn btn-danger btn-sm" id="btnThrow">Throw</button>
+      <button class="btn btn-danger btn-sm" id="btnReject">Reject</button>
+    </div>
   </div>
 
-  <h2>4. Failed Network Requests (Fetch)</h2>
-  <div class="card">
-    <p>These trigger intercepted <code>fetch()</code> calls to non-existent endpoints.</p>
-    <button class="btn network" onclick="triggerFetch404()">fetch → 404 (Not Found)</button>
-    <button class="btn network" onclick="triggerFetch500()">fetch → 500 (Server Error)</button>
-    <button class="btn network" onclick="triggerFetchPost()">fetch POST → 404</button>
-    <button class="btn network" onclick="triggerFetchNetworkError()">fetch → Network Error (invalid domain)</button>
-    <p class="desc"><span class="badge network">network</span> Should appear as <strong>HTTP Error</strong> with status and method.</p>
-  </div>
+</div>
 
-  <h2>5. Failed Network Requests (XHR)</h2>
-  <div class="card">
-    <p>These trigger intercepted <code>XMLHttpRequest</code> calls.</p>
-    <button class="btn network" onclick="triggerXHR404()">XHR GET → 404</button>
-    <button class="btn network" onclick="triggerXHR500()">XHR GET → 500</button>
-    <button class="btn network" onclick="triggerXHRPost()">XHR POST → 404</button>
-    <button class="btn network" onclick="triggerXHRNetworkError()">XHR → Network Error</button>
-    <p class="desc"><span class="badge network">network</span> Should appear as <strong>HTTP Error</strong> with status and method.</p>
-  </div>
+<!-- ACTIVITY LOG -->
+<h2 style="font-size:14px;color:#666;margin-bottom:8px">Activity Log</h2>
+<button class="btn btn-sm" id="clearLog" style="margin-bottom:8px">Clear Log</button>
+<div id="log">Ready. Interact with the dashboard above.</div>
 
-  <h2>Status Log</h2>
-  <button class="btn clear" onclick="clearOutput()">Clear Log</button>
-  <div id="output">Ready. Click buttons to trigger errors and see immediate feedback below.</div>
+<script>
+// ── Helpers ──
+var $ = function(id) { return document.getElementById(id); };
+var api = 'http://127.0.0.1:8080';
 
-  <script>
-    // ── Console output logger ──
-    function log(message, type) {
-      const output = document.getElementById('output');
-      const time = new Date().toLocaleTimeString();
-      const cls = type ? ` ${type}` : '';
-      output.innerHTML += `[${time}] <span class="${cls}">${message}</span>\n`;
-      output.scrollTop = output.scrollHeight;
-    }
+function log(msg, cls) {
+  var el = $('log');
+  var t = new Date().toLocaleTimeString();
+  el.innerHTML += '[' + t + '] <span class="' + (cls || '') + '">' + msg + '</span>\n';
+  el.scrollTop = el.scrollHeight;
+}
 
-    // ════════════════════════════════════
-    // SECTION 1: Console Errors
-    // ════════════════════════════════════
+function toast(msg, cls) {
+  var t = document.createElement('div');
+  t.className = 'toast ' + cls;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(function() { t.remove(); }, 2500);
+}
 
-    function triggerConsoleError() {
-      console.error('Simple console error message');
-      log('console.error("Simple console error message") ✓', 'success');
-    }
+// ═══════════════════════════════════════
+// LOGIN — triggers network error
+// ═══════════════════════════════════════
 
-    function triggerConsoleErrorWithObject() {
-      console.error('Request failed:', { status: 500, body: 'Internal error' });
-      log('console.error with object ✓', 'success');
-    }
+$('btnLogin').addEventListener('click', function() {
+  var user = $('username').value;
+  var pass = $('password').value;
+  log('Sign In clicked — POST /api/login', 'info');
+  fetch(api + '/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: user, password: pass })
+  }).then(function(r) {
+    log('Sign In returned ' + r.status + ' (expected server error)', 'ok');
+    toast('Login failed: ' + r.status, 'err');
+  }).catch(function() {
+    log('Sign In network error caught', 'ok');
+  });
+});
 
-    function triggerConsoleErrorWithError() {
-      console.error('Unhandled exception:', new Error('Database connection timeout'));
-      log('console.error with Error object ✓', 'success');
-    }
+$('btnLoginClear').addEventListener('click', function() {
+  $('username').value = '';
+  $('password').value = '';
+  log('Login fields cleared', 'info');
+});
 
-    function triggerConsoleErrorMultiple() {
-      console.error('Multiple', 'arguments', 'here', 42, { key: 'value' });
-      log('console.error with multiple args ✓', 'success');
-    }
+// ═══════════════════════════════════════
+// SEARCH — triggers console.error
+// ═══════════════════════════════════════
 
-    // ════════════════════════════════════
-    // SECTION 2: Uncaught Exceptions
-    // ════════════════════════════════════
+$('btnSearch').addEventListener('click', function() {
+  var q = $('searchInput').value.trim();
+  if (!q) {
+    console.error('Search query is empty — user must enter a search term');
+    $('searchResults').innerHTML = '<span style="color:#dc3545">Please enter a search term.</span>';
+    log('Search with empty query — console.error triggered', 'err');
+    toast('Search failed: empty query', 'err');
+    return;
+  }
+  $('searchResults').innerHTML = 'Searching for "' + q + '"...';
+  log('Searching for: ' + q, 'info');
+  // Simulate search via fetch
+  fetch(api + '/api/search?q=' + encodeURIComponent(q))
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      $('searchResults').innerHTML = 'Found ' + (d.results || 0) + ' results.';
+      log('Search completed', 'ok');
+    }).catch(function() {
+      $('searchResults').innerHTML = '<span style="color:#dc3545">Search failed.</span>';
+    });
+});
 
-    function triggerUncaughtException() {
-      setTimeout(() => {
-        throw new Error('Runtime failure: something went wrong');
-      }, 100);
-      log('Threw uncaught exception (via setTimeout) ✓', 'success');
-    }
+// ═══════════════════════════════════════
+// DATA LOADING — triggers network errors
+// ═══════════════════════════════════════
 
-    function triggerTypeError() {
-      setTimeout(() => {
-        const obj = null;
-        obj.nonExistentMethod();
-      }, 100);
-      log('Threw TypeError (null reference) ✓', 'success');
-    }
+$('btnLoadUsers').addEventListener('click', function() {
+  log('Load Users clicked — fetch /api/server-error', 'info');
+  $('dataStatus').innerHTML = 'Loading users...';
+  fetch(api + '/api/server-error')
+    .then(function(r) {
+      $('dataStatus').innerHTML = '<span style="color:#dc3545">Failed to load users (500).</span>';
+      log('Load Users returned 500', 'ok');
+      toast('Failed to load users', 'err');
+    }).catch(function() {
+      $('dataStatus').innerHTML = '<span style="color:#dc3545">Network error loading users.</span>';
+    });
+});
 
-    // ════════════════════════════════════
-    // SECTION 3: Unhandled Promise Rejections
-    // ════════════════════════════════════
+$('btnLoadOrders').addEventListener('click', function() {
+  log('Load Orders clicked — XHR /api/not-found', 'info');
+  $('dataStatus').innerHTML = 'Loading orders...';
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', api + '/api/not-found');
+  xhr.onloadend = function() {
+    $('dataStatus').innerHTML = '<span style="color:#dc3545">Orders not found (404).</span>';
+    log('Load Orders returned 404', 'ok');
+    toast('Orders not found', 'err');
+  };
+  xhr.send();
+});
 
-    function triggerPromiseRejection() {
-      Promise.reject('Simple string rejection');
-      log('Promise.reject("Simple string rejection") ✓', 'success');
-    }
+$('btnLoadConfig').addEventListener('click', function() {
+  log('Load Config clicked — fetch invalid domain', 'info');
+  $('dataStatus').innerHTML = 'Loading config...';
+  fetch('https://this-domain-does-not-exist-12345.com/config')
+    .then(function() {
+      $('dataStatus').innerHTML = 'Config loaded.';
+    }).catch(function() {
+      $('dataStatus').innerHTML = '<span style="color:#dc3545">Config network error.</span>';
+      log('Load Config — network error caught', 'ok');
+      toast('Config load failed: network error', 'err');
+    });
+});
 
-    function triggerPromiseRejectionWithError() {
-      Promise.reject(new Error('Async failure in fetch handler'));
-      log('Promise.reject(new Error(...)) ✓', 'success');
-    }
+// ═══════════════════════════════════════
+// DIRECT ERROR TRIGGERS
+// ═══════════════════════════════════════
 
-    function triggerPromiseRejectionNested() {
-      Promise.resolve()
-        .then(() => { throw new Error('Nested promise failure'); })
-        .then(() => { /* never reached */ });
-      log('Nested promise rejection ✓', 'success');
-    }
+$('btnConsoleError').addEventListener('click', function() {
+  console.error('Manual console.error triggered from dashboard');
+  log('console.error() triggered', 'ok');
+  toast('Console error sent', 'ok');
+});
 
-    // ════════════════════════════════════
-    // SECTION 4: Fetch Network Errors
-    // ════════════════════════════════════
+$('btnConsoleWarn').addEventListener('click', function() {
+  console.warn('Manual console.warn — this is a warning');
+  log('console.warn() triggered', 'ok');
+  toast('Console warning sent', 'ok');
+});
 
-    function triggerFetch404() {
-      fetch('http://127.0.0.1:8080/api/not-found')
-        .then(() => log('fetch 404 ✓ (response received, check popup)', 'success'))
-        .catch(() => log('fetch 404 caught in catch', 'error'));
-    }
+$('btnConsoleLog').addEventListener('click', function() {
+  console.log('Dashboard state:', { view: 'admin', theme: 'dark', user: 'admin' });
+  log('console.log() with state object', 'info');
+  toast('Console log sent (check ring buffer)', 'info');
+});
 
-    function triggerFetch500() {
-      fetch('http://127.0.0.1:8080/api/server-error')
-        .then(() => log('fetch 500 ✓', 'success'))
-        .catch(() => log('fetch 500 caught', 'error'));
-    }
+$('btnThrow').addEventListener('click', function() {
+  log('Throwing exception...', 'err');
+  setTimeout(function() {
+    throw new Error('Manual exception from dashboard button click');
+  }, 100);
+  toast('Exception thrown', 'err');
+});
 
-    function triggerFetchPost() {
-      fetch('http://127.0.0.1:8080/api/submit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ test: true }) })
-        .then(() => log('fetch POST 201 ✓ (created)', 'success'))
-        .catch(() => log('fetch POST caught', 'error'));
-    }
+$('btnReject').addEventListener('click', function() {
+  log('Rejecting promise...', 'err');
+  Promise.reject(new Error('Manual promise rejection from dashboard'));
+  toast('Promise rejected', 'err');
+});
 
-    function triggerFetchNetworkError() {
-      fetch('https://this-domain-does-not-exist-12345.com/api')
-        .then(() => log('fetch network error ✓ (unexpected success)', 'success'))
-        .catch(() => log('fetch network error caught ✓', 'success'));
-    }
+// ═══════════════════════════════════════
+// CLEAR LOG
+// ═══════════════════════════════════════
 
-    // ════════════════════════════════════
-    // SECTION 5: XHR Network Errors
-    // ════════════════════════════════════
+$('clearLog').addEventListener('click', function() {
+  $('log').innerHTML = 'Log cleared.';
+});
 
-    function triggerXHR404() {
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'http://127.0.0.1:8080/api/not-found');
-      xhr.onloadend = () => log('XHR 404 ✓', 'success');
-      xhr.onerror = () => log('XHR 404 network error', 'error');
-      xhr.send();
-    }
-
-    function triggerXHR500() {
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'http://127.0.0.1:8080/api/server-error');
-      xhr.onloadend = () => log('XHR 500 ✓', 'success');
-      xhr.onerror = () => log('XHR 500 network error', 'error');
-      xhr.send();
-    }
-
-    function triggerXHRPost() {
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', 'http://127.0.0.1:8080/api/submit');
-      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-      xhr.onloadend = () => log('XHR POST 201 ✓ (created)', 'success');
-      xhr.onerror = () => log('XHR POST network error', 'error');
-      xhr.send('test=data');
-    }
-
-    function triggerXHRNetworkError() {
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', 'https://this-domain-does-not-exist-12345.com/api');
-      xhr.onloadend = () => log('XHR network error (onloadend)', 'success');
-      xhr.onerror = () => log('XHR network error (onerror) ✓', 'success');
-      xhr.send();
-    }
-
-    // ── Clear output ──
-    function clearOutput() {
-      document.getElementById('output').innerHTML = 'Output cleared.';
-    }
-
-    log('Test page loaded. Follow the instructions above.', 'success');
-  </script>
+log('Dashboard loaded — use Error Hunter to capture interactions.', 'ok');
+</script>
 </body>
 </html>
