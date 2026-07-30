@@ -79,46 +79,8 @@ function injectPageWorldErrorCapture() {
     return extra;
   }
 
-  // Console.error
-  var _origConsoleError = console.error;
-  console.error = function () {
-    _origConsoleError.apply(console, arguments);
-    var args = Array.prototype.slice.call(arguments);
-    var message = args.map(function (a) {
-      if (a instanceof Error) return a.message;
-      if (typeof a === 'object') { try { return JSON.stringify(a); } catch (e) { return String(a); } }
-      return String(a);
-    }).join(' ');
-    var stack = null;
-    for (var i = 0; i < args.length; i++) {
-      if (args[i] instanceof Error) { stack = args[i].stack; break; }
-    }
-    window.dispatchEvent(new CustomEvent('eh-console-error', {
-      detail: makeDetail('console', { message: message, stack: stack })
-    }));
-  };
-
-  // Console.warn
-  var _origConsoleWarn = console.warn;
-  console.warn = function () {
-    _origConsoleWarn.apply(console, arguments);
-    var args = Array.prototype.slice.call(arguments);
-    var message = '(warning) ' + args.map(function (a) {
-      if (a instanceof Error) return a.message;
-      if (typeof a === 'object') { try { return JSON.stringify(a); } catch (e) { return String(a); } }
-      return String(a);
-    }).join(' ');
-    var stack = null;
-    for (var i = 0; i < args.length; i++) {
-      if (args[i] instanceof Error) { stack = args[i].stack; break; }
-    }
-    window.dispatchEvent(new CustomEvent('eh-console-warn', {
-      detail: makeDetail('console', { level: 'warn', message: message, stack: stack })
-    }));
-  };
-
-  // Console.log, info, debug capture for log context
-  function _patchConsoleLog(method, eventName, level) {
+  // Console method patching — unified
+  function _patchConsole(method, eventName, extra) {
     var orig = console[method];
     console[method] = function () {
       orig.apply(console, arguments);
@@ -128,14 +90,24 @@ function injectPageWorldErrorCapture() {
         if (typeof a === 'object') { try { return JSON.stringify(a); } catch (e) { return String(a); } }
         return String(a);
       }).join(' ');
+      if (extra.level === 'warn') message = '(warning) ' + message;
+      var detail = { message: message };
+      if (extra.level) detail.level = extra.level;
+      var stack = null;
+      for (var i = 0; i < args.length; i++) {
+        if (args[i] instanceof Error) { stack = args[i].stack; break; }
+      }
+      if (stack) detail.stack = stack;
       window.dispatchEvent(new CustomEvent(eventName, {
-        detail: makeDetail('console', { level: level, message: message })
+        detail: makeDetail('console', detail)
       }));
     };
   }
-  _patchConsoleLog('log', 'eh-console-log', 'log');
-  _patchConsoleLog('info', 'eh-console-info', 'info');
-  _patchConsoleLog('debug', 'eh-console-debug', 'debug');
+  _patchConsole('error', 'eh-console-error', {});
+  _patchConsole('warn', 'eh-console-warn', { level: 'warn' });
+  _patchConsole('log', 'eh-console-log', { level: 'log' });
+  _patchConsole('info', 'eh-console-info', { level: 'info' });
+  _patchConsole('debug', 'eh-console-debug', { level: 'debug' });
 
   // Window error and rejection
   window.addEventListener('error', function (e) {

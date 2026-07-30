@@ -239,7 +239,7 @@ function getFilteredErrors() {
     // Type filter — single pass
     if (currentFilter === 'warning' && e.level !== 'warn') return false;
     if (currentFilter === 'console' && e.type !== 'console' && e.type !== 'exception' && e.type !== 'unhandledrejection') return false;
-    if (currentFilter !== 'all' && currentFilter !== 'warning' && currentFilter !== 'console' && e.type !== currentFilter) return false;
+    if (currentFilter !== 'all' && e.type !== currentFilter) return false;
 
     // Search filter
     if (!searchText) return true;
@@ -332,7 +332,7 @@ function buildErrorItem(error, index) {
           const desc = entry.actionType === 'click'
             ? 'Clicked "' + (entry.text || entry.tag) + '"'
             : 'Entered "' + (entry.value || '') + '" in ' + (entry.name || entry.tag || 'input');
-          return `<div class="log-entry"><span class="log-time">${time}</span> ${escapeHtml(desc)}</div>`;
+          return `<div class="log-entry log-entry-${entry.actionType}"><span class="log-time">${time}</span> ${escapeHtml(desc)}</div>`;
         }).join('')}</div>
       </div>
     `;
@@ -415,11 +415,9 @@ async function copyErrorToClipboard(index, btn) {
   const text = formatErrorForClipboard(error);
   try {
     await navigator.clipboard.writeText(text);
-    btn.textContent = '✓';
-    setTimeout(() => { btn.textContent = '📋'; }, 1500);
+    flashBtn(btn, '✓', 1500);
   } catch {
-    btn.textContent = '✗';
-    setTimeout(() => { btn.textContent = '📋'; }, 1500);
+    flashBtn(btn, '✗', 1500);
   }
 }
 
@@ -445,9 +443,7 @@ function exportReport(format) {
   const filtered = getFilteredErrors();
   if (filtered.length === 0) {
     const btn = format === 'json' ? btnExportJson : btnExport;
-    const orig = btn.textContent;
-    btn.textContent = 'No errors';
-    setTimeout(() => { btn.textContent = orig; }, 2000);
+    flashBtn(btn, 'No errors');
     return;
   }
 
@@ -530,9 +526,7 @@ function exportReport(format) {
 async function copyBugReport() {
   const filtered = getFilteredErrors();
   if (filtered.length === 0) {
-    const orig = btnBugReport.textContent;
-    btnBugReport.textContent = 'No errors';
-    setTimeout(() => { btnBugReport.textContent = orig; }, 2000);
+    flashBtn(btnBugReport, 'No errors');
     return;
   }
 
@@ -541,20 +535,16 @@ async function copyBugReport() {
   const text = generateBugReport(filtered, pageUrl);
   try {
     await navigator.clipboard.writeText(text);
-    btnBugReport.textContent = 'Copied!';
-    setTimeout(() => { btnBugReport.textContent = 'Copy Report'; }, 2000);
+    flashBtn(btnBugReport, 'Copied!');
   } catch {
-    btnBugReport.textContent = 'Failed';
-    setTimeout(() => { btnBugReport.textContent = 'Copy Report'; }, 2000);
+    flashBtn(btnBugReport, 'Failed');
   }
 }
 
 async function fileBugReport() {
   const filtered = getFilteredErrors();
   if (filtered.length === 0) {
-    const orig = btnFileBug.textContent;
-    btnFileBug.textContent = 'No errors';
-    setTimeout(() => { btnFileBug.textContent = 'Edit Report'; }, 2000);
+    flashBtn(btnFileBug, 'No errors');
     return;
   }
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -695,7 +685,6 @@ function generateBugReport(errors, pageUrl, typeLabelFn) {
     if (error.type === 'network') {
       if (error.status) lines.push('- **Status:** ' + error.status + ' ' + (error.statusText || ''));
       if (error.method) lines.push('- **Method:** ' + error.method);
-      if (error.duration) lines.push('- **Duration:** ' + error.duration + 'ms');
     }
 
     if (error.stack) {
@@ -709,6 +698,12 @@ function generateBugReport(errors, pageUrl, typeLabelFn) {
   });
 
   return lines.join('\n');
+}
+
+function flashBtn(btn, msg, restoreMs) {
+  var orig = btn.textContent;
+  btn.textContent = msg;
+  setTimeout(function () { btn.textContent = orig; }, restoreMs || 2000);
 }
 
 // ── Utilities ──

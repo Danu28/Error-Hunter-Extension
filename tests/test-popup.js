@@ -127,13 +127,12 @@ function runTests() {
     const _generateBugReport = extractFn(src, 'generateBugReport');
     const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel);
     const errors = [
-      { type: 'network', message: 'POST failed', timestamp: Date.now(), url: 'https://api.example.com/data', status: 500, statusText: 'Internal Server Error', method: 'POST', duration: 1200 }
+      { type: 'network', message: 'POST failed', timestamp: Date.now(), url: 'https://api.example.com/data', status: 500, statusText: 'Internal Server Error', method: 'POST' }
     ];
     const report = generateBugReport(errors);
     assert.ok(report.includes('500'));
     assert.ok(report.includes('Internal Server Error'));
     assert.ok(report.includes('POST'));
-    assert.ok(report.includes('1200ms'));
   });
 
   test('generateBugReport includes stack trace', () => {

@@ -41,15 +41,13 @@ function runTests() {
   test('injectPageWorldErrorCapture patches console.error', () => {
     const fnStart = src.indexOf('function injectPageWorldErrorCapture');
     const fnBody = src.slice(fnStart);
-    assert.ok(fnBody.includes('_origConsoleError'));
-    assert.ok(fnBody.includes('console.error'));
+    assert.ok(fnBody.includes("_patchConsole('error'"));
   });
 
   test('injectPageWorldErrorCapture patches console.warn', () => {
     const fnStart = src.indexOf('function injectPageWorldErrorCapture');
     const fnBody = src.slice(fnStart);
-    assert.ok(fnBody.includes('_origConsoleWarn'));
-    assert.ok(fnBody.includes('console.warn'));
+    assert.ok(fnBody.includes("_patchConsole('warn'"));
   });
 
   test('injectPageWorldErrorCapture dispatches all 5 custom event types', () => {

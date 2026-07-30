@@ -508,6 +508,8 @@ body {
 .log-entry-log { color: var(--text-secondary); }
 .log-entry-info { color: var(--accent-blue); }
 .log-entry-debug { color: var(--text-muted); }
+.log-entry-click { color: var(--accent-blue); }
+.log-entry-input { color: var(--accent-green); }
 .log-level {
   font-weight: 600;
   margin-right: 4px;
