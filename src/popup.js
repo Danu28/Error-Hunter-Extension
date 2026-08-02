@@ -460,6 +460,17 @@ function buildErrorItem(error) {
     </div>
   `;
 
+  // Page state (repro context)
+  if (error.pageTitle || error.pageRoute) {
+    const page = [error.pageTitle, error.pageRoute].filter(Boolean).join(' — ');
+    detailsHtml += `
+      <div class="error-details-section">
+        <div class="error-details-label">Page</div>
+        <div class="error-details-content">${escapeHtml(page)}</div>
+      </div>
+    `;
+  }
+
   // Full URL
   if (error.url) {
     detailsHtml += `
@@ -878,6 +889,7 @@ function generateBugReport(errors, pageUrl, typeLabelFn, getTabLabel) {
     lines.push('- **Message:** ' + (error.message || '(empty)'));
     if (error.url) lines.push('- **Source:** ' + error.url);
     lines.push('- **Time:** ' + new Date(error.timestamp).toLocaleString());
+    if (error.pageTitle || error.pageRoute) lines.push('- **Page:** ' + [error.pageTitle, error.pageRoute].filter(Boolean).join(' — '));
     if (error.count && error.count > 1) lines.push('- **Occurrences:** ' + error.count);
 
     if (error.type === 'network') {

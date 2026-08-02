@@ -111,6 +111,19 @@ async function runTests() {
     assert.ok(fnBody.includes('xhr.responseText'));
   });
 
+  test('injectPageWorldErrorCapture captures resource-load failures via PerformanceObserver', () => {
+    const fnStart = src.indexOf('function injectPageWorldErrorCapture');
+    const fnBody = src.slice(fnStart);
+    assert.ok(fnBody.includes('PerformanceObserver'));
+    assert.ok(fnBody.includes("type: 'resource'"));
+    assert.ok(fnBody.includes('buffered: true'));
+    assert.ok(fnBody.includes('responseStatus >= 400'));
+    assert.ok(fnBody.includes("initiatorType !== 'fetch'"));
+    assert.ok(fnBody.includes("initiatorType !== 'xmlhttprequest'"));
+    assert.ok(fnBody.includes("'eh-network-error'"));
+    assert.ok(fnBody.includes("'Resource ' + e.initiatorType"));
+  });
+
   test('handleNewError filters errors against ignore rules', () => {
     assert.ok(src.includes('async function isIgnoredError'));
     assert.ok(src.includes('eh_ignore_rules'));
@@ -178,6 +191,27 @@ async function runTests() {
     assert.strictEqual(stored.length, 1);
     assert.strictEqual(stored[0].count, 2);
     assert.strictEqual(stored[0].tabId, 7);
+  });
+
+  test('handleNewError: dedup hit refreshes pageTitle/pageRoute to latest occurrence', async () => {
+    const { storage, data } = createStorageMock();
+    const handler = new Function(
+      'chrome', 'STORAGE_KEY', 'BLOCKED_COUNT_KEY', 'MAX_ERRORS',
+      'isIgnoredError', 'updateBadge', 'return ' + handleNewError
+    )({ storage }, 'error_hunter_errors', 'eh_blocked_count', 500, async () => false, async () => {});
+    await handler(
+      { type: 'network', message: 'err', url: 'https://x/', timestamp: 1, pageTitle: 'Old', pageRoute: '/a' },
+      { tab: { id: 1 } }
+    );
+    await handler(
+      { type: 'network', message: 'err', url: 'https://x/', timestamp: 2, pageTitle: 'New', pageRoute: '/b' },
+      { tab: { id: 1 } }
+    );
+    const stored = data.session['error_hunter_errors'];
+    assert.strictEqual(stored.length, 1);
+    assert.strictEqual(stored[0].count, 2);
+    assert.strictEqual(stored[0].pageTitle, 'New');
+    assert.strictEqual(stored[0].pageRoute, '/b');
   });
 
   test('handleNewError: same error from different tab stays separate', async () => {

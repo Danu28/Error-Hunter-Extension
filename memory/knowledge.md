@@ -1,5 +1,13 @@
 # Knowledge
 
+## Resource-load capture via Resource Timing
+
+In `injectPageWorldErrorCapture` (MAIN world): `new PerformanceObserver(cb).observe({type:'resource', buffered:true})`; flag entries with `responseStatus >= 400` and initiatorType NOT `fetch`/`xmlhttprequest` (those are already instrumented — excluding them prevents double capture). `buffered:true` replays assets that failed before monitoring started. Dispatch reuses `eh-network-error` → content relay → SW. Caveat: `responseStatus` is 0 for cross-origin resources without CORS headers, so those are skipped (platform limit).
+
+## Page state on errors (repro context)
+
+Every stored error carries `pageTitle` + `pageRoute` (`location.pathname` + `location.hash`), stamped in content.js `reportError` — the single chokepoint all error paths flow through (console patch, page-world events). SW `handleNewError` refreshes these on a dedup hit so the entry reflects the latest occurrence. Popup shows a Page section in expanded details and a `**Page:**` line in the bug report.
+
 ## Gotcha: "nothing captured" on Start = stale/missing content script
 
 If a tab was opened before the extension loaded (or before it was reloaded in `chrome://extensions`), its content script is absent/invalidated, so the SW broadcast of `start` fails with "Receiving end does not exist" (`chrome.tabs.sendMessage` rejects). Because console patching lives in the content script, NOTHING is captured — not even console errors; that symptom pins this cause. Fix (service-worker.js): `broadcastToTabs` returns the ids of tabs whose sendMessage threw, and `handleStartMonitoring` runs `chrome.scripting.executeScript({target:{tabId}, files:['src/content.js']})` on exactly those — the injected script auto-starts via content.js `init()` because status is already active. No page reload; `tabs.reload` is only a fallback when injection throws. A manual refresh is the same self-heal, just manual. (Reload was the original fix but the user saw every stale tab refresh after an extension reload — injection avoids that; also the main reason an un-gated inject-all approach is wrong: it double-patches healthy tabs, and cross-instance idempotency markers are unreliable across extension reloads.)
@@ -41,7 +49,7 @@ Error buttons must use the UNFILTERED index (`errors.indexOf(error)` / `origInde
 
 ## Browser behavior: resource-load errors never reach window/document
 
-Verified empirically in real Chrome: a failing `<img>` fires `error` ONLY on the element (`img.onerror`). `window.addEventListener('error')` (bubble AND capture), `document` listeners, and `window.onerror` do NOT fire for resource-load failures. Consequence: broken-image/script/css errors cannot be caught by a window-level handler — the extension's `injectPageWorldErrorCapture` `window error` listener only sees uncaught JS exceptions. Do not "fix" this by adding more error listeners; it cannot be done at window level.
+Verified empirically in real Chrome: a failing `<img>` fires `error` ONLY on the element (`img.onerror`). `window.addEventListener('error')` (bubble AND capture), `document` listeners, and `window.onerror` do NOT fire for resource-load failures. The event-model fact stands — resource errors cannot be caught with window-level error handlers. (updated 2026-08-02) The capture GAP this created is now closed via Resource Timing instead of error events (see "Resource-load capture via Resource Timing"): same-origin/CORS-visible 4xx/5xx assets are captured as network errors.
 
 ## Test-verification technique: extract + run capture code in a page probe
 

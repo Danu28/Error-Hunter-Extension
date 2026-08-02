@@ -51,16 +51,15 @@ End-to-end manual test checklist for the Error Hunter Chrome extension using the
 2. Open the popup.
 - **Expect:** each click adds one entry. `console.error` shows the red **Console** badge, warnings show the **Warning** badge, Throw/Reject appear as Console entries. Payload objects are readable in the expanded error.
 
-### 2. Network capture (fetch + XHR)
-1. Click **Load Users** (404), **Load Orders** (500), **Load Config** (network fail), **Slow Error** (500, ~2 s), **XHR POST** (500).
+### 2. Network capture (fetch + XHR + resource loads)
+1. Click **Load Users** (404), **Load Orders** (500), **Load Config** (network fail), **Slow Error** (500, ~2 s), **XHR POST** (500), **Broken Image** (resource 404).
 2. Open the popup → **Network** filter.
-- **Expect:** five entries. Each shows status (404/500/-), and the URL. The **Slow Error** entry shows a ~2000 ms duration. **Load Config** shows `Network error`/`-` status with the failed URL. The **XHR POST** entry shows the JSON request body and response snippet when expanded.
+- **Expect:** six entries. Each shows status (404/500/-), and the URL. The **Slow Error** entry shows a ~2000 ms duration. **Load Config** shows `Network error`/`-` status with the failed URL. The **XHR POST** entry shows the JSON request body and response snippet when expanded. The **Broken Image** entry shows `Resource img .../missing.png returned 404` (network status 404, no method).
 
 ### 3. Success / negative tests (must NOT capture)
 1. Click **OK Request** and **Big Response**.
 2. Open the popup.
-- **Expect:** NO new entries, NO badge increase. 200 responses are never errors.
-- **Broken Image** is also NOT captured — by design. Resource-load failures (broken `<img>`, `<script>`, `<link>`) fire an `error` event only on the element itself; they never reach `window`/`document` listeners, so Error Hunter's window-level error handler cannot see them. This is expected, not a defect.
+- **Expect:** NO new entries, NO badge increase. 200 responses are never errors. Resource-load failures ARE captured (see §2) — broken `<img>`/`<script>`/CSS assets are detected via the Resource Timing API; the element-level `error` event is otherwise invisible to window listeners, so Resource Timing is the capture path.
 
 ### 4. Log ring buffer
 1. Click **console.log**, **console.info**, **console.debug** several times.

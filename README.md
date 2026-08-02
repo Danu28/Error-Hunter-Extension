@@ -11,6 +11,8 @@
 
 - **Console Error Capture** — Intercepts `console.error`, uncaught exceptions (`window.onerror`), and unhandled Promise rejections in real time.
 - **Network Error Capture** — Intercepts `fetch` and `XMLHttpRequest` for requests returning 4xx/5xx status codes or network failures, including request duration, request body, and response snippet.
+- **Resource-Load Capture** — Detects broken `<img>`, `<script>`, CSS, iframe, video, and other asset loads (HTTP 4xx/5xx) via the Resource Timing API — including assets that failed before monitoring started. fetch/XHR failures are not duplicated.
+- **Page Context on Errors** — Every captured error is stamped with the page title and current route, so bug reports and expanded errors show where the user was when it happened.
 - **Ignore Rules** — Add substring rules (match on message, URL, or either) to block known third-party noise at capture. Errors matching a rule are never stored and never counted in the badge; a counter shows how many were blocked. Click ⛔ on any error to ignore similar ones.
 - **Per-Tab Filtering** — When errors come from multiple tabs, filter the list per tab with the dropdown in the summary row.
 - **Start / Stop Monitoring** — Click **Start Monitoring** to begin capturing; click **Stop Monitoring** to stop interception. Captured errors are kept until you click **Clear**.

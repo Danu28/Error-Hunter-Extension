@@ -175,6 +175,24 @@ function runTests() {
     assert.ok(report.includes('**Occurrences:** 5'));
   });
 
+  test('generateBugReport includes Page line when page state is present', () => {
+    const _generateBugReport = extractFn(src, 'generateBugReport');
+    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel, () => null);
+    const errors = [
+      { type: 'network', message: 'boom', timestamp: Date.now(), pageTitle: 'Admin Dashboard', pageRoute: '/orders#tab2' }
+    ];
+    const report = generateBugReport(errors);
+    assert.ok(report.includes('**Page:** Admin Dashboard — /orders#tab2'));
+    const noState = generateBugReport([{ type: 'console', message: 'x', timestamp: Date.now() }]);
+    assert.ok(!noState.includes('**Page:**'));
+  });
+
+  test('buildErrorItem renders Page section when page state is present', () => {
+    assert.ok(src.includes('error.pageTitle'));
+    assert.ok(src.includes('error.pageRoute'));
+    assert.ok(src.includes('error-details-label">Page'));
+  });
+
   test('generateBugReport includes Tab line when a tab is selected', () => {
     const _generateBugReport = extractFn(src, 'generateBugReport');
     const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel, () => 'Login page');

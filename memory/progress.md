@@ -1,5 +1,23 @@
 # Progress
 
+## 2026-08-02 — Feature round: resource-load capture + page context
+
+Plan approved (F1: PerformanceObserver resource capture; F2: page-state chokepoint).
+
+- [x] T1. F1: `PerformanceObserver('resource', buffered)` in injectPageWorldErrorCapture; exclude fetch/xhr initiators; dispatch `eh-network-error`
+- [x] T2. F1: TESTING.md §2/§3 — broken image now captured (Resource Timing)
+- [x] T3. F2: content.js `reportError` stamps pageTitle + pageRoute (behavioral test added)
+- [x] T4. F2: SW `handleNewError` refreshes pageTitle/pageRoute on dedup hit (behavioral test added)
+- [x] T5. F2: popup `buildErrorItem` Page section + `generateBugReport` `**Page:**` line (tests added)
+- [x] T6. README features list + memory (this file)
+- Verify: suite 71 → 75 all green; real-Chrome probe confirmed resource capture (early + live img, CSS bg, favicon → 404; fetch single-captured, no double capture)
+
+## Verifier (2026-08-02) — feature round
+
+- [v] Suite 75/75 re-run green.
+- [v] Mutation-verified 3 new behavioral tests: removing reportError pageTitle stamp → content test fails; removing SW dedup pageRoute refresh → SW test fails; removing popup `**Page:**` line → popup test fails.
+- Verifier findings (Low): resource-capture automated test is source-presence only (behavior proven by the Chrome probe, not the suite); buildErrorItem Page rendering is presence-tested only. Both acceptable — matches the codebase's deliberate pattern for the MAIN world function.
+
 ## 2026-08-02 — Start-monitoring self-heal round
 
 Plan approved (verify-then-repair: fix only tabs with no live content script). Revised to inject instead of reload after the user saw all stale tabs refresh.

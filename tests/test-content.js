@@ -4,6 +4,13 @@ const path = require('path');
 
 const CONTENT_JS_PATH = path.join(__dirname, '..', 'src', 'content.js');
 
+function extractFn(src, fnName) {
+  const re = new RegExp('(?:async\\s+)?function\\s+' + fnName + '\\s*\\([^)]*\\)\\s*\\{[\\s\\S]*?\\n\\}');
+  const match = src.match(re);
+  if (!match) throw new Error('Function ' + fnName + ' not found in source');
+  return new Function('return ' + match[0])();
+}
+
 function runTests() {
   const results = [];
 
@@ -53,6 +60,23 @@ function runTests() {
     assert.ok(!src.includes('function removeErrorListeners'));
     assert.ok(!src.includes('function handleWindowError'));
     assert.ok(!src.includes('function handleUnhandledRejection'));
+  });
+
+  test('reportError stamps pageTitle and pageRoute', () => {
+    const sent = [];
+    const chrome = { runtime: { sendMessage: (msg) => { sent.push(msg); return Promise.resolve(); } } };
+    const doc = { title: 'Admin Dashboard' };
+    const loc = { pathname: '/tests/test-page.html', hash: '#orders' };
+    const reportError = new Function(
+      'monitoring', 'chrome', 'document', 'location', 'stopMonitoring',
+      'return ' + extractFn(src, 'reportError')
+    )(true, chrome, doc, loc, () => {});
+    const error = { message: 'boom', url: 'https://x/a.js' };
+    reportError(error);
+    assert.strictEqual(error.pageTitle, 'Admin Dashboard');
+    assert.strictEqual(error.pageRoute, '/tests/test-page.html#orders');
+    assert.strictEqual(sent[0].action, 'new_error');
+    assert.strictEqual(sent[0].error, error);
   });
 
   const failed = results.filter(r => !r.passed);

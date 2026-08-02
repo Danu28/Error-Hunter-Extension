@@ -1,5 +1,31 @@
 # Decisions
 
+## [2026-08-02] Decision: Resource-load failures captured via Resource Timing (not error events)
+
+Context: Broken `<img>`/`<script>`/CSS assets were invisible — element `error` events never reach window/document listeners (verified empirically), a real QA gap. Feature #1 from the idea review.
+
+Options:
+- A: `PerformanceObserver('resource')` in the MAIN world — flag `responseStatus >= 400`, exclude fetch/xhr initiator types (already instrumented) to avoid double capture; `buffered: true` replays assets that failed before Start.
+- B: window capture-phase error listener inspecting `e.target` — rejected: verified these never fire for resource errors.
+- C: monkey-patch `createElement`/`img.src` — rejected: invasive, misses CSS background images/fonts.
+
+Chosen: A. Standard page API, reuses the full capture→popup pipeline, no new permissions.
+
+Consequences: Same-origin and CORS-enabled 4xx/5xx assets captured ("Resource <initiator> <url> returned <status>"); cross-origin assets without CORS headers expose `responseStatus: 0` and are skipped — platform limit. Real-Chrome probe confirmed: img (early + live), CSS background, favicon captured; fetch not duplicated.
+
+## [2026-08-02] Decision: Page state stamped at content.js reportError chokepoint
+
+Context: Bug reports lacked where-the-user-was context. Feature #2 from the idea review.
+
+Options:
+- A: In `content.js reportError` (single chokepoint for every error path) set `error.pageTitle`/`pageRoute`; render in popup details + bug report; dedup refreshes state on hit.
+- B: Attach in MAIN world `makeDetail` — rejected: misses the direct content.js console path; wrong world for page-title logic.
+- C: Full DOM snapshot per error — cut: serialization cost + size, low triage value.
+
+Chosen: A.
+
+Consequences: Every stored error carries `pageTitle` + `pageRoute` (pathname+hash); expanded error shows a Page section; bug report gets a `**Page:**` line. Dedup keeps the latest state on repeated hits.
+
 ## [2026-08-02] Decision: Start self-heals stale content scripts by injecting, not reloading (updated 2026-08-02)
 
 Context: User reported "nothing is captured" after clicking Start Monitoring on an already-loaded page; a manual refresh made it work. Root cause: tabs opened before the extension loaded (or before it was reloaded in chrome://extensions) have no live content script, so the SW→content.js `start` broadcast is never heard (sendMessage rejects). Console patching lives in the content script, so not even console errors appear — the decisive symptom.

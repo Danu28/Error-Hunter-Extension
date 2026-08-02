@@ -1,12 +1,16 @@
 # Problems
 
+## [2026-08-02] Verifier: no open findings (feature round — resource capture + page context)
+
+Reviewed tests, diff, security, performance. Mutation-verified all 3 new behavioral tests. Low-severity notes recorded as acceptable: resource-capture test is source-presence (behavior proven by the Chrome probe, per the codebase's deliberate pattern for the MAIN world function); buildErrorItem Page rendering is presence-tested only. Platform limit noted: the Resource Timing buffer can evict very old entries on long SPA sessions, so buffered replay at Start may miss the earliest failures.
+
 ## [2026-08-02] FIXED: Start monitoring on a pre-extension tab captured nothing
 
 User: after clicking Start on an already-loaded page, nothing was captured (not even console) until a manual refresh. Root cause: the tab had no live content script (opened before the extension loaded / stale after an extension reload), so the `start` broadcast was never heard. Fixed by verify-then-repair: `broadcastToTabs` now returns the tab ids whose sendMessage threw, and `handleStartMonitoring` injects `src/content.js` directly into exactly those (the script auto-starts via init(); status already active) — `tabs.reload` only as a fallback when injection throws. The first fix reloaded every stale tab, which the user rejected (saw all tabs refresh after an extension reload); switched to injection. Tests: 3 behavioral; suite 66 → 70, all green. TESTING.md troubleshooting notes the auto-repair.
 
 ## [2026-08-02] INFORMATIONAL: broken-image resource errors are NOT capturable (browser behavior)
 
-Manual-test finding "Broken Image not captured" is correct AND expected. Verified in real Chrome (headless + windowed probes): a failing `<img>` fires `error` only on the element — `window`/`document` error listeners (bubble AND capture phases) and `window.onerror` never fire for resource-load failures. So the extension's window-level `error` handler can't see them, no matter what. The capture surface is console + window errors + fetch/XHR + user actions; DOM element load errors are out of scope. TESTING.md §3 updated to state this as expected non-capture (previous note claiming it "may appear as Unknown error" was wrong).
+Manual-test finding "Broken Image not captured" is correct AND expected. Verified in real Chrome (headless + windowed probes): a failing `<img>` fires `error` only on the element — `window`/`document` error listeners (bubble AND capture phases) and `window.onerror` never fire for resource-load failures. So the extension's window-level `error` handler can't see them, no matter what. The capture surface is console + window errors + fetch/XHR + user actions; DOM element load errors are out of scope. TESTING.md §3 updated to state this as expected non-capture (previous note claiming it "may appear as Unknown error" was wrong). (updated 2026-08-02) Gap now closed for CORS-visible resources via Resource Timing (`PerformanceObserver`), so broken assets ARE captured as network errors — the event-model fact above still stands; the gap was closed without touching the error event.
 
 ## [2026-08-02] INVESTIGATED-NOT-REPRODUCED: "Load Orders" + "XHR POST" not captured
 

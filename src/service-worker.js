@@ -236,6 +236,28 @@ function injectPageWorldErrorCapture() {
     return _origXHRSend.apply(xhr, arguments);
   };
 
+  // Resource-load failures (broken <img>, <script>, CSS, iframe, video, etc.)
+  // via Resource Timing — the only reliable way to see them. Excludes fetch/XHR
+  // (already instrumented above) to avoid double capture. buffered:true replays
+  // assets that failed before the extension started monitoring.
+  if ('PerformanceObserver' in window) {
+    var _ehResourceObserver = new PerformanceObserver(function (list) {
+      var entries = list.getEntries();
+      for (var i = 0; i < entries.length; i++) {
+        var e = entries[i];
+        if (e.responseStatus >= 400 && e.initiatorType !== 'fetch' && e.initiatorType !== 'xmlhttprequest') {
+          window.dispatchEvent(new CustomEvent('eh-network-error', {
+            detail: makeDetail('network', {
+              message: 'Resource ' + e.initiatorType + ' ' + e.name + ' returned ' + e.responseStatus,
+              url: e.name, status: e.responseStatus, duration: Math.round(e.duration)
+            })
+          }));
+        }
+      }
+    });
+    _ehResourceObserver.observe({ type: 'resource', buffered: true });
+  }
+
   // User action capture for bug report steps
   document.addEventListener('click', function (e) {
     var t = e.target;
@@ -314,6 +336,8 @@ async function handleNewError(error, sender) {
     if (existing) {
       existing.count = (existing.count || 1) + 1;
       existing.timestamp = error.timestamp; // update to latest occurrence
+      if (error.pageTitle !== undefined) existing.pageTitle = error.pageTitle;
+      if (error.pageRoute !== undefined) existing.pageRoute = error.pageRoute;
     } else {
       error.count = 1;
       errors.push(error);

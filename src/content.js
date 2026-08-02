@@ -30,6 +30,9 @@ function reportError(error) {
   if (!monitoring) {
     return;
   }
+  // Repro context: where the user was when the error happened
+  error.pageTitle = document.title;
+  error.pageRoute = location.pathname + location.hash;
   chrome.runtime.sendMessage({ action: 'new_error', error }).catch((err) => {
     if (err.message.includes('Extension context invalidated')) {
       stopMonitoring();
