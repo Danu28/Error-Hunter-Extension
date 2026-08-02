@@ -353,8 +353,8 @@ function renderErrors() {
 
   // Build HTML string for performance
   let html = '';
-  filtered.forEach((error, index) => {
-    html += buildErrorItem(error, index);
+  filtered.forEach((error) => {
+    html += buildErrorItem(error);
   });
 
   errorList.innerHTML = html;
@@ -382,7 +382,7 @@ function getFilteredErrors() {
 }
 
 // ── Build HTML for a single error item ──
-function buildErrorItem(error, index) {
+function buildErrorItem(error) {
   const time = formatTime(error.timestamp);
   const typeClass = getTypeClass(error.type, error.level);
   const typeLabel = getTypeLabel(error.type, error.level);
@@ -565,7 +565,7 @@ function buildErrorItem(error, index) {
         </div>
         <button class="delete-btn" data-index="${errors.indexOf(error)}" title="Delete error">✕</button>
         <button class="ignore-btn" data-index="${origIndex}" title="Ignore errors like this">⛔</button>
-        <button class="copy-btn" data-index="${index}" title="Copy error details">📋</button>
+        <button class="copy-btn" data-index="${origIndex}" title="Copy error details">📋</button>
       </div>
       <div class="error-details">${detailsHtml}</div>
     </div>

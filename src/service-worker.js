@@ -149,6 +149,9 @@ function injectPageWorldErrorCapture() {
     if (typeof body === 'string') return body;
     if (body instanceof URLSearchParams) return body.toString();
     if (body instanceof Blob) return '';
+    if (body instanceof FormData) return '';
+    if (body instanceof ArrayBuffer) return '';
+    if (typeof body === 'object' && typeof body.byteLength === 'number') return '';
     try { return JSON.stringify(body); } catch (e) { return ''; }
   }
 
@@ -169,12 +172,16 @@ function injectPageWorldErrorCapture() {
           url: url, method: method, status: response.status, statusText: response.statusText,
           duration: Date.now() - startTime, requestBody: _ehTruncate(body, 500)
         });
-        response.clone().text().then(function (text) {
-          detail.responseText = _ehTruncate(text, 2000);
+        try {
+          response.clone().text().then(function (text) {
+            detail.responseText = _ehTruncate(text, 2000);
+            window.dispatchEvent(new CustomEvent('eh-network-error', { detail: detail }));
+          }).catch(function () {
+            window.dispatchEvent(new CustomEvent('eh-network-error', { detail: detail }));
+          });
+        } catch (e) {
           window.dispatchEvent(new CustomEvent('eh-network-error', { detail: detail }));
-        }).catch(function () {
-          window.dispatchEvent(new CustomEvent('eh-network-error', { detail: detail }));
-        });
+        }
       }
       return response;
     }).catch(function (err) {

@@ -194,6 +194,11 @@ function runTests() {
     assert.ok(src.includes("action: 'get_errors'"));
   });
 
+  test('copy and ignore buttons use unfiltered error index', () => {
+    const copyLine = src.split('\n').find(l => l.includes('copy-btn"'));
+    assert.ok(copyLine.includes('origIndex'), 'copy-btn must use origIndex, not filtered index');
+  });
+
   const failed = results.filter(r => !r.passed);
   const passed = results.filter(r => r.passed);
 
