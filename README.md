@@ -10,7 +10,9 @@
 ## Features
 
 - **Console Error Capture** — Intercepts `console.error`, uncaught exceptions (`window.onerror`), and unhandled Promise rejections in real time.
-- **Network Error Capture** — Intercepts `fetch` and `XMLHttpRequest` for requests returning 4xx/5xx status codes or network failures.
+- **Network Error Capture** — Intercepts `fetch` and `XMLHttpRequest` for requests returning 4xx/5xx status codes or network failures, including request duration, request body, and response snippet.
+- **Ignore Rules** — Add substring rules (match on message, URL, or either) to block known third-party noise at capture. Errors matching a rule are never stored and never counted in the badge; a counter shows how many were blocked. Click ⛔ on any error to ignore similar ones.
+- **Per-Tab Filtering** — When errors come from multiple tabs, filter the list per tab with the dropdown in the summary row.
 - **Start / Stop Monitoring** — Click **Start Monitoring** to begin capturing; click **Stop Monitoring** to clear all captured errors and stop interception.
 - **Badge Indicator** — Red badge on the extension icon showing the current error count at a glance.
 - **Filter Tabs** — Filter errors by type: All, Console, or Network.
@@ -38,6 +40,8 @@
 8. Click individual errors to expand and view full details
 9. Click the 📋 button to copy a single error's details
 10. Click **Export Report** to download a full HTML report of all visible errors
+11. Click ⛔ on a noisy error to add an ignore rule — it disappears and future matching errors are blocked. Manage rules under **Ignore rules**
+12. Use the **tab dropdown** in the summary row to view errors from a single tab
 
 ## Permissions
 

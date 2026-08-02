@@ -3,6 +3,8 @@
 
 const STORAGE_KEY = 'error_hunter_errors';
 const STATUS_KEY = 'error_hunter_active';
+const IGNORE_RULES_KEY = 'eh_ignore_rules';
+const BLOCKED_COUNT_KEY = 'eh_blocked_count';
 
 // Initialize state
 chrome.runtime.onInstalled.addListener(() => {
@@ -45,6 +47,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     case 'delete_error':
       handleDeleteError(message, sendResponse);
+      return true;
+
+    case 'add_ignore_rule':
+      handleAddIgnoreRule(message, sendResponse);
+      return true;
+
+    case 'remove_ignore_rule':
+      handleRemoveIgnoreRule(message, sendResponse);
       return true;
 
     default:
@@ -129,29 +139,50 @@ function injectPageWorldErrorCapture() {
     }));
   });
 
+  function _ehTruncate(str, max) {
+    if (typeof str !== 'string') return '';
+    return str.length > max ? str.substring(0, max) + '…' : str;
+  }
+
+  function _ehBodyToString(body) {
+    if (body == null) return '';
+    if (typeof body === 'string') return body;
+    if (body instanceof URLSearchParams) return body.toString();
+    if (body instanceof Blob) return '';
+    try { return JSON.stringify(body); } catch (e) { return ''; }
+  }
+
   // Fetch
   var _origFetch = window.fetch;
   window.fetch = function () {
     var args = arguments;
     var url = '';
     var method = 'GET';
-    if (args[0] instanceof Request) { url = args[0].url; method = args[0].method || 'GET'; }
-    else if (typeof args[0] === 'string') { url = args[0]; method = (args[1] && args[1].method) || 'GET'; }
+    var body = '';
+    if (args[0] instanceof Request) { url = args[0].url; method = args[0].method || 'GET'; body = _ehBodyToString(args[0].body); }
+    else if (typeof args[0] === 'string') { url = args[0]; method = (args[1] && args[1].method) || 'GET'; body = args[1] ? _ehBodyToString(args[1].body) : ''; }
+    var startTime = Date.now();
     return _origFetch.apply(window, args).then(function (response) {
       if (!response.ok && response.status >= 400) {
-        window.dispatchEvent(new CustomEvent('eh-network-error', {
-          detail: makeDetail('network', {
-            message: 'Fetch ' + method + ' ' + url + ' returned ' + response.status,
-            url: url, method: method, status: response.status, statusText: response.statusText
-          })
-        }));
+        var detail = makeDetail('network', {
+          message: 'Fetch ' + method + ' ' + url + ' returned ' + response.status,
+          url: url, method: method, status: response.status, statusText: response.statusText,
+          duration: Date.now() - startTime, requestBody: _ehTruncate(body, 500)
+        });
+        response.clone().text().then(function (text) {
+          detail.responseText = _ehTruncate(text, 2000);
+          window.dispatchEvent(new CustomEvent('eh-network-error', { detail: detail }));
+        }).catch(function () {
+          window.dispatchEvent(new CustomEvent('eh-network-error', { detail: detail }));
+        });
       }
       return response;
     }).catch(function (err) {
       window.dispatchEvent(new CustomEvent('eh-network-error', {
         detail: makeDetail('network', {
           message: 'Fetch ' + method + ' ' + url + ' failed: ' + err.message,
-          url: url, method: method, status: 0, statusText: 'Network Failure'
+          url: url, method: method, status: 0, statusText: 'Network Failure',
+          duration: Date.now() - startTime, requestBody: _ehTruncate(body, 500)
         })
       }));
       throw err;
@@ -164,25 +195,31 @@ function injectPageWorldErrorCapture() {
   XMLHttpRequest.prototype.open = function (method, url) {
     this._eh_method = method;
     this._eh_url = (typeof url === 'string') ? url : (url ? String(url) : '');
+    this._eh_start = Date.now();
     return _origXHROpen.apply(this, arguments);
   };
   XMLHttpRequest.prototype.send = function () {
     var xhr = this;
+    xhr._eh_body = _ehBodyToString(arguments[0]);
     xhr.addEventListener('loadend', function () {
       if (xhr.status >= 400) {
-        window.dispatchEvent(new CustomEvent('eh-network-error', {
-          detail: makeDetail('network', {
-            message: 'XHR ' + xhr._eh_method + ' ' + xhr._eh_url + ' returned ' + xhr.status,
-            url: xhr._eh_url, method: xhr._eh_method, status: xhr.status, statusText: xhr.statusText
-          })
-        }));
+        var detail = makeDetail('network', {
+          message: 'XHR ' + xhr._eh_method + ' ' + xhr._eh_url + ' returned ' + xhr.status,
+          url: xhr._eh_url, method: xhr._eh_method, status: xhr.status, statusText: xhr.statusText,
+          duration: Date.now() - xhr._eh_start, requestBody: _ehTruncate(xhr._eh_body, 500)
+        });
+        if (xhr.responseType === '' || xhr.responseType === 'text') {
+          detail.responseText = _ehTruncate(xhr.responseText, 2000);
+        }
+        window.dispatchEvent(new CustomEvent('eh-network-error', { detail: detail }));
       }
     });
     xhr.addEventListener('error', function () {
       window.dispatchEvent(new CustomEvent('eh-network-error', {
         detail: makeDetail('network', {
           message: 'XHR ' + xhr._eh_method + ' ' + xhr._eh_url + ' failed: Network error',
-          url: xhr._eh_url, method: xhr._eh_method, status: 0, statusText: 'Network Failure'
+          url: xhr._eh_url, method: xhr._eh_method, status: 0, statusText: 'Network Failure',
+          duration: Date.now() - xhr._eh_start, requestBody: _ehTruncate(xhr._eh_body, 500)
         })
       }));
     });
@@ -216,9 +253,38 @@ function injectPageWorldErrorCapture() {
   }, true);
 }
 
+// Check if an error matches a single ignore rule
+function matchesRule(error, rule) {
+  const msg = (error.message || '').toLowerCase();
+  const url = (error.url || '').toLowerCase();
+  const pattern = (rule.pattern || '').toLowerCase();
+  if (!pattern) return false;
+  if (rule.matchOn === 'url') return url.includes(pattern);
+  if (rule.matchOn === 'message') return msg.includes(pattern);
+  return msg.includes(pattern) || url.includes(pattern);
+}
+
+// Check if an error matches any user-configured ignore rule
+async function isIgnoredError(error) {
+  try {
+    const result = await chrome.storage.local.get(IGNORE_RULES_KEY);
+    const rules = result[IGNORE_RULES_KEY] || [];
+    return rules.some(rule => matchesRule(error, rule));
+  } catch (err) {
+    console.error('[Error Hunter] isIgnoredError FAILED:', err.message);
+    return false;
+  }
+}
+
 // Store a new error and update badge
 async function handleNewError(error, sender) {
   try {
+    if (await isIgnoredError(error)) {
+      const result = await chrome.storage.local.get(BLOCKED_COUNT_KEY);
+      await chrome.storage.local.set({ [BLOCKED_COUNT_KEY]: (result[BLOCKED_COUNT_KEY] || 0) + 1 });
+      return;
+    }
+
     const result = await chrome.storage.session.get(STORAGE_KEY);
     const errors = result[STORAGE_KEY] || [];
 
@@ -228,11 +294,12 @@ async function handleNewError(error, sender) {
       error.tabUrl = sender.tab.url;
     }
 
-    // Deduplicate: if same type + message + url exists, increment count
+    // Deduplicate: if same type + message + url + tab exists, increment count
     const existing = errors.find(e =>
       e.type === error.type &&
       e.message === error.message &&
-      e.url === error.url
+      e.url === error.url &&
+      e.tabId === error.tabId
     );
     if (existing) {
       existing.count = (existing.count || 1) + 1;
@@ -327,6 +394,46 @@ async function handleDeleteError(message, sendResponse) {
     sendResponse({ success: true, errors });
   } catch (err) {
     console.error('[Error Hunter] handleDeleteError FAILED:', err.message);
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+// Add an ignore rule and purge any existing errors it now blocks
+async function handleAddIgnoreRule(message, sendResponse) {
+  try {
+    const pattern = (message.pattern || '').trim();
+    if (!pattern) { sendResponse({ success: false }); return; }
+    const rule = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+      pattern,
+      matchOn: message.matchOn || 'any'
+    };
+    const result = await chrome.storage.local.get(IGNORE_RULES_KEY);
+    const rules = result[IGNORE_RULES_KEY] || [];
+    rules.push(rule);
+    await chrome.storage.local.set({ [IGNORE_RULES_KEY]: rules });
+
+    const sResult = await chrome.storage.session.get(STORAGE_KEY);
+    const errors = (sResult[STORAGE_KEY] || []).filter(e => !matchesRule(e, rule));
+    await chrome.storage.session.set({ [STORAGE_KEY]: errors });
+    await updateBadge(errors.length);
+
+    sendResponse({ success: true, rules, errors });
+  } catch (err) {
+    console.error('[Error Hunter] handleAddIgnoreRule FAILED:', err.message);
+    sendResponse({ success: false, error: err.message });
+  }
+}
+
+// Remove an ignore rule (existing errors stay; future captures unblocked)
+async function handleRemoveIgnoreRule(message, sendResponse) {
+  try {
+    const result = await chrome.storage.local.get(IGNORE_RULES_KEY);
+    const rules = (result[IGNORE_RULES_KEY] || []).filter(r => r.id !== message.id);
+    await chrome.storage.local.set({ [IGNORE_RULES_KEY]: rules });
+    sendResponse({ success: true, rules });
+  } catch (err) {
+    console.error('[Error Hunter] handleRemoveIgnoreRule FAILED:', err.message);
     sendResponse({ success: false, error: err.message });
   }
 }

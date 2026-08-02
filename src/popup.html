@@ -38,9 +38,30 @@
       <input type="text" class="search-input" id="searchInput" placeholder="Search errors...">
     </div>
 
+    <!-- Ignore rules -->
+    <div class="rules-bar">
+      <button class="rules-toggle" id="rulesToggle">Ignore rules</button>
+    </div>
+    <div class="rules-panel" id="rulesPanel" hidden>
+      <div class="rules-add">
+        <input type="text" class="rule-input" id="rulePattern" placeholder="Pattern to ignore (message or url)...">
+        <select class="rule-match" id="ruleMatchOn">
+          <option value="any">any</option>
+          <option value="message">message</option>
+          <option value="url">url</option>
+        </select>
+        <button class="btn btn-add-rule" id="btnAddRule">Add</button>
+      </div>
+      <div class="rules-list" id="rulesList"></div>
+      <div class="rules-blocked" id="rulesBlocked"></div>
+    </div>
+
     <!-- Error count summary -->
     <div class="summary" id="summary">
       <span id="errorCount">0 errors</span>
+      <select class="tab-filter" id="tabFilter" hidden>
+        <option value="">All tabs</option>
+      </select>
       <button class="sort-toggle" id="sortToggle">↓ Newest</button>
       <a href="#" class="expand-toggle" id="expandToggle">Expand all</a>
     </div>

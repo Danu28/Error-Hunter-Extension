@@ -75,6 +75,42 @@ function runTests() {
     assert.ok(fnBody.includes('XMLHttpRequest.prototype'));
   });
 
+  test('injectPageWorldErrorCapture captures network duration and payload', () => {
+    const fnStart = src.indexOf('function injectPageWorldErrorCapture');
+    const fnBody = src.slice(fnStart);
+    assert.ok(fnBody.includes('duration:'));
+    assert.ok(fnBody.includes('requestBody:'));
+    assert.ok(fnBody.includes('responseText'));
+    assert.ok(fnBody.includes('_ehTruncate'));
+    assert.ok(fnBody.includes('_ehBodyToString'));
+    assert.ok(fnBody.includes('response.clone()'));
+    assert.ok(fnBody.includes('xhr.responseText'));
+  });
+
+  test('handleNewError filters errors against ignore rules', () => {
+    assert.ok(src.includes('async function isIgnoredError'));
+    assert.ok(src.includes('eh_ignore_rules'));
+    assert.ok(src.includes('eh_blocked_count'));
+    const start = src.indexOf('async function handleNewError');
+    const body = src.slice(start);
+    assert.ok(body.includes('isIgnoredError'));
+    assert.ok(body.includes('BLOCKED_COUNT_KEY'));
+  });
+
+  test('handleNewError deduplicates per type, message, url, and tab', () => {
+    const start = src.indexOf('async function handleNewError');
+    const body = src.slice(start);
+    assert.ok(body.includes('e.tabId === error.tabId'));
+  });
+
+  test('service worker handles ignore rule add/remove messages', () => {
+    assert.ok(src.includes("case 'add_ignore_rule'"));
+    assert.ok(src.includes("case 'remove_ignore_rule'"));
+    assert.ok(src.includes('async function handleAddIgnoreRule'));
+    assert.ok(src.includes('async function handleRemoveIgnoreRule'));
+    assert.ok(src.includes('function matchesRule'));
+  });
+
   const failed = results.filter(r => !r.passed);
   const passed = results.filter(r => r.passed);
 

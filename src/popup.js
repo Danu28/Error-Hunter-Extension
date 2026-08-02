@@ -7,6 +7,9 @@ let prevErrorCount = 0;
 let lastRenderKey = '';
 let expandedSet = new Set();
 let sortAscending = false;
+let ignoreRules = [];
+let blockedCount = 0;
+let currentTab = '';
 
 // ── DOM References ──
 const btnStart = document.getElementById('btnStart');
@@ -23,6 +26,14 @@ const searchInput = document.getElementById('searchInput');
 const sortToggle = document.getElementById('sortToggle');
 const btnFileBug = document.getElementById('btnFileBug');
 const filterBtns = document.querySelectorAll('.filter-btn');
+const rulesToggle = document.getElementById('rulesToggle');
+const rulesPanel = document.getElementById('rulesPanel');
+const rulesList = document.getElementById('rulesList');
+const rulesBlocked = document.getElementById('rulesBlocked');
+const rulePattern = document.getElementById('rulePattern');
+const ruleMatchOn = document.getElementById('ruleMatchOn');
+const btnAddRule = document.getElementById('btnAddRule');
+const tabFilter = document.getElementById('tabFilter');
 
 // ── Initialize ──
 document.addEventListener('DOMContentLoaded', () => {
@@ -37,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ── Load state from service worker ──
 async function loadState() {
   try {
+    loadRules();
     const response = await chrome.runtime.sendMessage({ action: 'get_errors' });
     if (response) {
       errors = response.errors || [];
@@ -48,6 +60,7 @@ async function loadState() {
         }
       }
       prevErrorCount = errors.length;
+      updateTabFilter();
       updateUI(response.isMonitoring);
     } else {
       console.warn('[Error Hunter] loadState - null/undefined response from SW');
@@ -68,6 +81,25 @@ function setupEventListeners() {
   btnBugReport.addEventListener('click', copyBugReport);
   btnFileBug.addEventListener('click', fileBugReport);
 
+  rulesToggle.addEventListener('click', () => {
+    rulesPanel.hidden = !rulesPanel.hidden;
+  });
+
+  btnAddRule.addEventListener('click', async () => {
+    const pattern = rulePattern.value.trim();
+    if (await addRule(pattern, ruleMatchOn.value)) {
+      rulePattern.value = '';
+    }
+  });
+
+  rulesList.addEventListener('click', (e) => {
+    const del = e.target.closest('.rule-delete');
+    if (del) {
+      e.stopPropagation();
+      removeRule(del.dataset.ruleId);
+    }
+  });
+
   // Event delegation for error list
   errorList.addEventListener('click', (e) => {
     const deleteBtn = e.target.closest('.delete-btn');
@@ -82,6 +114,14 @@ function setupEventListeners() {
       e.stopPropagation();
       const index = parseInt(copyBtn.dataset.index);
       copyErrorToClipboard(index, copyBtn);
+      return;
+    }
+    const ignoreBtn = e.target.closest('.ignore-btn');
+    if (ignoreBtn) {
+      e.stopPropagation();
+      const index = parseInt(ignoreBtn.dataset.index);
+      const error = errors[index];
+      if (error) addRule(error.message, 'message');
       return;
     }
     const errorItem = e.target.closest('.error-item');
@@ -118,6 +158,11 @@ function setupEventListeners() {
 
   searchInput.addEventListener('input', () => {
     searchText = searchInput.value.trim().toLowerCase();
+    renderErrors();
+  });
+
+  tabFilter.addEventListener('change', () => {
+    currentTab = tabFilter.value;
     renderErrors();
   });
 }
@@ -176,6 +221,90 @@ async function deleteError(index) {
   }
 }
 
+// ── Ignore Rules ──
+async function loadRules() {
+  try {
+    const result = await chrome.storage.local.get(['eh_ignore_rules', 'eh_blocked_count']);
+    ignoreRules = result.eh_ignore_rules || [];
+    blockedCount = result.eh_blocked_count || 0;
+    renderRules();
+  } catch (err) {
+    console.error('[Error Hunter] loadRules FAILED:', err.message);
+  }
+}
+
+function renderRules() {
+  rulesToggle.textContent = ignoreRules.length > 0
+    ? `Ignore rules (${ignoreRules.length})`
+    : 'Ignore rules';
+  rulesBlocked.textContent = blockedCount > 0
+    ? `${blockedCount} error${blockedCount !== 1 ? 's' : ''} blocked this session`
+    : '';
+  if (ignoreRules.length === 0) {
+    rulesList.innerHTML = `<div class="rules-empty">No rules. Click ⛔ on an error to ignore it.</div>`;
+    return;
+  }
+  rulesList.innerHTML = ignoreRules.map(rule => `
+    <div class="rule-item">
+      <span class="rule-field">[${escapeHtml(rule.matchOn)}]</span>
+      <span class="rule-pattern">${escapeHtml(rule.pattern)}</span>
+      <button class="rule-delete" data-rule-id="${rule.id}" title="Remove rule">✕</button>
+    </div>
+  `).join('');
+}
+
+async function addRule(pattern, matchOn) {
+  const trimmed = (pattern || '').trim();
+  if (!trimmed) {
+    flashBtn(btnAddRule, 'Empty');
+    return false;
+  }
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'add_ignore_rule', pattern: trimmed, matchOn: matchOn || 'any' });
+    if (response && response.success) {
+      ignoreRules = response.rules;
+      errors = response.errors || errors;
+      expandedSet.clear();
+      renderRules();
+      renderErrors();
+      return true;
+    }
+  } catch (err) {
+    console.error('[Error Hunter] addRule FAILED:', err.message);
+  }
+  return false;
+}
+
+async function removeRule(id) {
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'remove_ignore_rule', id });
+    if (response && response.success) {
+      ignoreRules = response.rules;
+      renderRules();
+    }
+  } catch (err) {
+    console.error('[Error Hunter] removeRule FAILED:', err.message);
+  }
+}
+
+// Populate the per-tab filter dropdown from captured errors
+function updateTabFilter() {
+  const tabs = new Map();
+  for (const e of errors) {
+    if (e.tabId != null && !tabs.has(String(e.tabId))) {
+      tabs.set(String(e.tabId), truncateUrl(e.tabUrl || 'Tab ' + e.tabId));
+    }
+  }
+  // Preserve the current selection if that tab still has errors
+  if (currentTab !== '' && !tabs.has(currentTab)) currentTab = '';
+  let html = '<option value="">All tabs</option>';
+  for (const [id, label] of tabs) {
+    html += `<option value="${id}" ${id === currentTab ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+  }
+  tabFilter.innerHTML = html;
+  tabFilter.hidden = tabs.size < 2;
+}
+
 // ── Update UI State ──
 function updateUI(isMonitoring) {
   if (isMonitoring) {
@@ -213,7 +342,7 @@ function renderErrors() {
 
   // Skip DOM rebuild if filtered list hasn't changed
   const lastTimestamp = filtered.length > 0 ? filtered[filtered.length - 1].timestamp : '';
-  const key = filtered.length + ':' + consoleCount + ':' + warnCount + ':' + networkCount + ':' + lastTimestamp + ':' + sortAscending;
+  const key = filtered.length + ':' + consoleCount + ':' + warnCount + ':' + networkCount + ':' + lastTimestamp + ':' + sortAscending + ':' + currentTab;
   if (key === lastRenderKey) return;
   lastRenderKey = key;
 
@@ -240,6 +369,9 @@ function getFilteredErrors() {
     if (currentFilter === 'warning' && e.level !== 'warn') return false;
     if (currentFilter === 'console' && e.type !== 'console' && e.type !== 'exception' && e.type !== 'unhandledrejection') return false;
     if (currentFilter !== 'all' && e.type !== currentFilter) return false;
+
+    // Tab filter
+    if (currentTab !== '' && String(e.tabId) !== currentTab) return false;
 
     // Search filter
     if (!searchText) return true;
@@ -288,6 +420,14 @@ function buildErrorItem(error, index) {
       metaHtml += `
         <span class="error-meta-item">
           <span class="label">method</span> ${escapeHtml(error.method)}
+        </span>
+      `;
+    }
+
+    if (error.duration != null) {
+      metaHtml += `
+        <span class="error-meta-item">
+          <span class="label">took</span> ${error.duration}ms
         </span>
       `;
     }
@@ -370,6 +510,30 @@ function buildErrorItem(error, index) {
         </div>
       `;
     }
+    if (error.duration != null) {
+      detailsHtml += `
+        <div class="error-details-section">
+          <div class="error-details-label">Duration</div>
+          <div class="error-details-content">${error.duration}ms</div>
+        </div>
+      `;
+    }
+    if (error.requestBody) {
+      detailsHtml += `
+        <div class="error-details-section">
+          <div class="error-details-label">Request Body</div>
+          <div class="error-details-content"><pre class="error-stack">${escapeHtml(error.requestBody)}</pre></div>
+        </div>
+      `;
+    }
+    if (error.responseText) {
+      detailsHtml += `
+        <div class="error-details-section">
+          <div class="error-details-label">Response</div>
+          <div class="error-details-content"><pre class="error-stack">${escapeHtml(error.responseText)}</pre></div>
+        </div>
+      `;
+    }
   }
 
   // Count badge for deduplicated errors
@@ -400,6 +564,7 @@ function buildErrorItem(error, index) {
           <div class="error-meta">${metaHtml}</div>
         </div>
         <button class="delete-btn" data-index="${errors.indexOf(error)}" title="Delete error">✕</button>
+        <button class="ignore-btn" data-index="${origIndex}" title="Ignore errors like this">⛔</button>
         <button class="copy-btn" data-index="${index}" title="Copy error details">📋</button>
       </div>
       <div class="error-details">${detailsHtml}</div>
@@ -434,6 +599,9 @@ function formatErrorForClipboard(error) {
   if (error.type === 'network') {
     if (error.method) lines.push(`Method: ${error.method}`);
     if (error.status) lines.push(`Status: ${error.status} ${error.statusText || ''}`);
+    if (error.duration != null) lines.push(`Duration: ${error.duration}ms`);
+    if (error.requestBody) lines.push(`Request Body:\n${error.requestBody}`);
+    if (error.responseText) lines.push(`Response:\n${error.responseText}`);
   }
   return lines.join('\n');
 }
@@ -597,6 +765,15 @@ async function fileBugReport() {
     if (e.type === 'network') {
       if (e.method) lines.push('- **Method:** ' + e.method);
       if (e.status) lines.push('- **Status:** ' + e.status + ' ' + (e.statusText || ''));
+      if (e.duration != null) lines.push('- **Duration:** ' + e.duration + 'ms');
+      if (e.requestBody) lines.push('- **Request body:**');
+      if (e.requestBody) lines.push('  ```');
+      if (e.requestBody) lines.push('  ' + e.requestBody);
+      if (e.requestBody) lines.push('  ```');
+      if (e.responseText) lines.push('- **Response:**');
+      if (e.responseText) lines.push('  ```');
+      if (e.responseText) lines.push('  ' + e.responseText);
+      if (e.responseText) lines.push('  ```');
     }
     if (e.stack) {
       lines.push('- **Stack:**');
@@ -685,6 +862,9 @@ function generateBugReport(errors, pageUrl, typeLabelFn) {
     if (error.type === 'network') {
       if (error.status) lines.push('- **Status:** ' + error.status + ' ' + (error.statusText || ''));
       if (error.method) lines.push('- **Method:** ' + error.method);
+      if (error.duration != null) lines.push('- **Duration:** ' + error.duration + 'ms');
+      if (error.requestBody) lines.push('- **Request body:**\n  ```\n  ' + error.requestBody + '\n  ```');
+      if (error.responseText) lines.push('- **Response:**\n  ```\n  ' + error.responseText + '\n  ```');
     }
 
     if (error.stack) {

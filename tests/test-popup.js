@@ -135,6 +135,24 @@ function runTests() {
     assert.ok(report.includes('POST'));
   });
 
+  test('generateBugReport includes network payload details', () => {
+    const _generateBugReport = extractFn(src, 'generateBugReport');
+    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel);
+    const errors = [
+      { type: 'network', message: 'POST failed', timestamp: Date.now(), url: 'https://api.example.com/login', status: 401, statusText: 'Unauthorized', method: 'POST', duration: 1200, requestBody: '{"username":"admin"}', responseText: '{"error":"bad creds"}' }
+    ];
+    const report = generateBugReport(errors);
+    assert.ok(report.includes('1200ms'));
+    assert.ok(report.includes('{"username":"admin"}'));
+    assert.ok(report.includes('{"error":"bad creds"}'));
+  });
+
+  test('buildErrorItem renders network duration, request body, and response', () => {
+    assert.ok(src.includes('error.duration != null'));
+    assert.ok(src.includes('error.requestBody'));
+    assert.ok(src.includes('error.responseText'));
+  });
+
   test('generateBugReport includes stack trace', () => {
     const _generateBugReport = extractFn(src, 'generateBugReport');
     const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel);
@@ -155,6 +173,25 @@ function runTests() {
     ];
     const report = generateBugReport(errors);
     assert.ok(report.includes('**Occurrences:** 5'));
+  });
+
+  test('popup includes ignore rule UI and handlers', () => {
+    assert.ok(src.includes('async function loadRules'));
+    assert.ok(src.includes('function renderRules'));
+    assert.ok(src.includes('async function addRule'));
+    assert.ok(src.includes('async function removeRule'));
+    assert.ok(src.includes('rulesToggle'));
+    assert.ok(src.includes("action: 'add_ignore_rule'"));
+    assert.ok(src.includes("action: 'remove_ignore_rule'"));
+    assert.ok(src.includes('class="ignore-btn"'));
+  });
+
+  test('popup includes per-tab filter UI and logic', () => {
+    assert.ok(src.includes('function updateTabFilter'));
+    assert.ok(src.includes("e.tabId != null"));
+    assert.ok(src.includes("String(e.tabId) !== currentTab"));
+    assert.ok(src.includes('tabFilter'));
+    assert.ok(src.includes("action: 'get_errors'"));
   });
 
   const failed = results.filter(r => !r.passed);
