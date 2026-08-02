@@ -1,5 +1,31 @@
 # Decisions
 
+## [2026-08-02] Decision: Start self-heals stale content scripts by injecting, not reloading (updated 2026-08-02)
+
+Context: User reported "nothing is captured" after clicking Start Monitoring on an already-loaded page; a manual refresh made it work. Root cause: tabs opened before the extension loaded (or before it was reloaded in chrome://extensions) have no live content script, so the SW→content.js `start` broadcast is never heard (sendMessage rejects). Console patching lives in the content script, so not even console errors appear — the decisive symptom.
+
+Options:
+- A: Reload all http tabs on Start — guaranteed, but disrupts healthy tabs and loses their state.
+- B: SW directly re-inject content.js + MAIN world into all tabs — no reload, but cross-instance idempotency is fragile after an extension reload (a stale marker from a dead instance makes fresh injection bail, or risks double capture).
+- C: Verify-then-repair (reload) — `broadcastToTabs` returns the tab ids whose sendMessage threw; Start reloads exactly those.
+- D: Verify-then-repair (inject) — same failed-tab gate, but `chrome.scripting.executeScript({target:{tabId}, files:['src/content.js']})` injects the content script directly into failed tabs; reload only if injection throws.
+
+Chosen: D. First shipped C (reload), but the user saw ALL tabs refresh after an extension reload — every stale tab had entered the failed list. D keeps the gate and drops the reload: the injected content script auto-starts via content.js `init()` (status already active), so capture works with zero reloads and no page-state loss. B rejected: cross-instance markers are fragile and un-gated injection double-patches healthy tabs.
+
+Consequences: Start never reloads a tab unless content-script injection itself fails (rare). `handleStopMonitoring` ignores `broadcastToTabs`' return value. Injecting into a tab mid-check can in theory double-inject (symptom: inflated dedup counts, not breakage) — acceptable.
+
+## [2026-08-02] Decision: Manual QA round — extend test server, no automation
+
+Context: User wants to test all features end to end. Two approaches: extend the existing serve-test.js + tests/test-page.html with edge-case triggers and write a guided manual checklist (TESTING.md), vs Playwright/Selenium automation.
+
+Options:
+- A: Extend existing server/page + TESTING.md manual guide.
+- B: Browser automation (Playwright/Selenium).
+
+Chosen: A — user picked fully manual testing; no new dependencies; extension code untouched during testing.
+
+Consequences: TESTING.md is the source of truth for the QA pass; server/page additions live in repo and stay versioned.
+
 ## [2026-08-02] Decision: Block ignore rules at capture
 
 Context: QA's popup flooded with third-party noise (ads, analytics, sentry). Two ways to filter: display-only (hide in list) vs block-at-capture (never store).

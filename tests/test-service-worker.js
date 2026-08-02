@@ -220,6 +220,98 @@ async function runTests() {
     assert.ok(!stored.some(e => e.message === 'err0'));
   });
 
+  const broadcastToTabs = extractFn(src, 'broadcastToTabs');
+
+  test('broadcastToTabs: returns tabs where sendMessage failed, skips non-http tabs', async () => {
+    const attempted = [];
+    const tabs = {
+      query: async () => [
+        { id: 1, url: 'http://a.test/' },
+        { id: 2, url: 'https://b.test/' },
+        { id: 3, url: 'chrome://extensions/' },
+        { id: 4, url: 'about:blank' }
+      ],
+      sendMessage: async (tabId) => {
+        attempted.push(tabId);
+        if (tabId === 2) throw new Error('Receiving end does not exist');
+        return {};
+      }
+    };
+    const fn = new Function('chrome', 'return ' + broadcastToTabs)({ tabs });
+    assert.deepStrictEqual(await fn('start'), [2]);
+    assert.deepStrictEqual(attempted, [1, 2]);
+  });
+
+  const handleStartMonitoring = extractFn(src, 'handleStartMonitoring');
+
+  test('handleStartMonitoring: injects content script into tabs without a live content script, no reload', async () => {
+    const { storage, data } = createStorageMock();
+    const injected = [];
+    const reloaded = [];
+    const handler = new Function(
+      'chrome', 'STORAGE_KEY', 'STATUS_KEY', 'broadcastToTabs',
+      'return ' + handleStartMonitoring
+    )(
+      {
+        storage,
+        scripting: { executeScript: async ({ target }) => { injected.push(target.tabId); } },
+        tabs: { reload: async (tabId) => { reloaded.push(tabId); } }
+      },
+      'error_hunter_errors', 'error_hunter_active',
+      async () => [2]
+    );
+    let response;
+    await handler((r) => { response = r; });
+    assert.deepStrictEqual(injected, [2]);
+    assert.deepStrictEqual(reloaded, []);
+    assert.strictEqual(response.success, true);
+    assert.strictEqual(data.session['error_hunter_active'], true);
+  });
+
+  test('handleStartMonitoring: no injection when every tab heard the broadcast', async () => {
+    const { storage } = createStorageMock();
+    const injected = [];
+    const reloaded = [];
+    const handler = new Function(
+      'chrome', 'STORAGE_KEY', 'STATUS_KEY', 'broadcastToTabs',
+      'return ' + handleStartMonitoring
+    )(
+      {
+        storage,
+        scripting: { executeScript: async () => { injected.push('x'); } },
+        tabs: { reload: async (tabId) => { reloaded.push(tabId); } }
+      },
+      'error_hunter_errors', 'error_hunter_active',
+      async () => []
+    );
+    let response;
+    await handler((r) => { response = r; });
+    assert.deepStrictEqual(injected, []);
+    assert.deepStrictEqual(reloaded, []);
+    assert.strictEqual(response.success, true);
+  });
+
+  test('handleStartMonitoring: reloads a tab only when content-script injection fails', async () => {
+    const { storage } = createStorageMock();
+    const reloaded = [];
+    const handler = new Function(
+      'chrome', 'STORAGE_KEY', 'STATUS_KEY', 'broadcastToTabs',
+      'return ' + handleStartMonitoring
+    )(
+      {
+        storage,
+        scripting: { executeScript: async () => { throw new Error('cannot inject'); } },
+        tabs: { reload: async (tabId) => { reloaded.push(tabId); } }
+      },
+      'error_hunter_errors', 'error_hunter_active',
+      async () => [2]
+    );
+    let response;
+    await handler((r) => { response = r; });
+    assert.deepStrictEqual(reloaded, [2]);
+    assert.strictEqual(response.success, true);
+  });
+
   await Promise.all(pending);
   const failed = results.filter(r => !r.passed);
   const passed = results.filter(r => r.passed);

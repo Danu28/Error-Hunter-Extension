@@ -1,5 +1,17 @@
 # Problems
 
+## [2026-08-02] FIXED: Start monitoring on a pre-extension tab captured nothing
+
+User: after clicking Start on an already-loaded page, nothing was captured (not even console) until a manual refresh. Root cause: the tab had no live content script (opened before the extension loaded / stale after an extension reload), so the `start` broadcast was never heard. Fixed by verify-then-repair: `broadcastToTabs` now returns the tab ids whose sendMessage threw, and `handleStartMonitoring` injects `src/content.js` directly into exactly those (the script auto-starts via init(); status already active) — `tabs.reload` only as a fallback when injection throws. The first fix reloaded every stale tab, which the user rejected (saw all tabs refresh after an extension reload); switched to injection. Tests: 3 behavioral; suite 66 → 70, all green. TESTING.md troubleshooting notes the auto-repair.
+
+## [2026-08-02] INFORMATIONAL: broken-image resource errors are NOT capturable (browser behavior)
+
+Manual-test finding "Broken Image not captured" is correct AND expected. Verified in real Chrome (headless + windowed probes): a failing `<img>` fires `error` only on the element — `window`/`document` error listeners (bubble AND capture phases) and `window.onerror` never fire for resource-load failures. So the extension's window-level `error` handler can't see them, no matter what. The capture surface is console + window errors + fetch/XHR + user actions; DOM element load errors are out of scope. TESTING.md §3 updated to state this as expected non-capture (previous note claiming it "may appear as Unknown error" was wrong).
+
+## [2026-08-02] INVESTIGATED-NOT-REPRODUCED: "Load Orders" + "XHR POST" not captured
+
+User reported XHR GET 404 and XHR POST 500 not captured. Investigation in a real Chrome browser (page probe running the extracted MAIN-world capture function): XHR GET 404, XHR POST 500, fetch 404/500, and console.error ALL dispatch `eh-network-error`/`eh-console-error` correctly with full detail (status, duration, requestBody, responseText). The downstream relay (content.js pageWorldHandler → reportError → SW handleNewError) is a single shared path used by fetch (which the user confirmed works), so there is no code path where XHR differs from fetch. Auto-verification of the full extension pipeline via CDP was abandoned (headless extension runs are incomplete; remote-debugging evaluate contexts don't expose `chrome.*`). Verdict: likely session interference (ignore rule / filter / monitoring off). TESTING.md now has a troubleshooting + clean-retest sequence. If the user reproduces after a clean retest, capture browser console (SW errors, `window.__eh_patched`) for the next round.
+
 ## [2026-08-02] FIXED: README says Stop clears errors (docs bug)
 
 Code only toggles capture; errors persist until Clear. Fixed in T2 (README, not code).

@@ -361,7 +361,25 @@ async function handleStartMonitoring(sendResponse) {
   try {
     await chrome.storage.session.set({ [STATUS_KEY]: true });
 
-    await broadcastToTabs('start');
+    // Tabs without a live content script (opened before extension load/reload)
+    // didn't receive 'start'; inject the content script directly so it auto-starts
+    // via init() without reloading the page. Reload only if injection fails.
+    const failed = await broadcastToTabs('start');
+    for (const tabId of failed) {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ['src/content.js']
+        });
+      } catch (err) {
+        console.error('[Error Hunter] inject content script into tab', tabId, 'FAILED:', err.message);
+        try {
+          await chrome.tabs.reload(tabId);
+        } catch (reloadErr) {
+          console.error('[Error Hunter] reload tab', tabId, 'FAILED:', reloadErr.message);
+        }
+      }
+    }
 
     sendResponse({ success: true });
   } catch (err) {
@@ -453,18 +471,21 @@ async function handleRemoveIgnoreRule(message, sendResponse) {
   }
 }
 
-// Broadcast an action (start/stop) to all http tabs
+// Broadcast an action (start/stop) to all http tabs.
+// Returns the ids of tabs that have no live content script (sendMessage failed).
 async function broadcastToTabs(action) {
+  const failed = [];
   const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
     if (tab.url && tab.url.startsWith('http')) {
       try {
         await chrome.tabs.sendMessage(tab.id, { action });
       } catch (e) {
-        // Tab may not have content script, that's fine
+        failed.push(tab.id);
       }
     }
   }
+  return failed;
 }
 
 // Pick badge color based on most severe error type in storage

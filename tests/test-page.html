@@ -83,6 +83,8 @@
       <button class="btn btn-danger btn-sm" id="btnLoadUsers">Load Users</button>
       <button class="btn btn-danger btn-sm" id="btnLoadOrders">Load Orders</button>
       <button class="btn btn-danger btn-sm" id="btnLoadConfig">Load Config</button>
+      <button class="btn btn-warning btn-sm" id="btnSlowError">Slow Error</button>
+      <button class="btn btn-danger btn-sm" id="btnXhrPost">XHR POST</button>
     </div>
     <div id="dataStatus" style="font-size:12px;color:#666;margin-top:8px"></div>
   </div>
@@ -95,8 +97,42 @@
       <button class="btn btn-sm" id="btnConsoleError">console.error</button>
       <button class="btn btn-sm" id="btnConsoleWarn">console.warn</button>
       <button class="btn btn-sm" id="btnConsoleLog">console.log</button>
+      <button class="btn btn-sm" id="btnConsoleInfo">console.info</button>
+      <button class="btn btn-sm" id="btnConsoleDebug">console.debug</button>
       <button class="btn btn-danger btn-sm" id="btnThrow">Throw</button>
       <button class="btn btn-danger btn-sm" id="btnReject">Reject</button>
+    </div>
+  </div>
+
+  <!-- SUCCESS / EDGE CASES -->
+  <div class="card">
+    <h2 class="warning">Success &amp; Edge Cases</h2>
+    <p>These should NOT be captured as errors.</p>
+    <div class="row">
+      <button class="btn btn-sm" id="btnOkData">OK Request (200)</button>
+      <button class="btn btn-sm" id="btnBigResponse">Big Response (200)</button>
+      <button class="btn btn-sm" id="btnImage404">Broken Image (404)</button>
+    </div>
+    <div id="successStatus" style="font-size:12px;color:#666;margin-top:8px"></div>
+  </div>
+
+  <!-- FORM ACTIONS -->
+  <div class="card">
+    <h2>Form Actions</h2>
+    <p>Change events here feed the bug report's "user actions" section.</p>
+    <select id="roleSelect">
+      <option value="admin">Admin</option>
+      <option value="viewer">Viewer</option>
+      <option value="editor">Editor</option>
+    </select>
+    <div class="row">
+      <label style="margin:0;display:flex;align-items:center;gap:6px"><input type="checkbox" id="notifyCheck"> Notify me</label>
+      <label style="margin:0;display:flex;align-items:center;gap:6px"><input type="radio" name="plan" id="planBasic" checked> Basic</label>
+      <label style="margin:0;display:flex;align-items:center;gap:6px"><input type="radio" name="plan" id="planPro"> Pro</label>
+    </div>
+    <textarea id="notesText" rows="2" style="width:100%;padding:7px 10px;border:1px solid #3c3c3c;border-radius:4px;background:#1e1e1e;color:#ccc;font-size:13px;margin-bottom:8px" placeholder="Type notes..."></textarea>
+    <div class="row">
+      <button class="btn btn-primary btn-sm" id="btnSaveForm">Save</button>
     </div>
   </div>
 
@@ -222,6 +258,81 @@ $('btnLoadConfig').addEventListener('click', function() {
     });
 });
 
+$('btnSlowError').addEventListener('click', function() {
+  log('Slow Error clicked — fetch /api/slow-error (500 after 2s)', 'info');
+  $('dataStatus').innerHTML = 'Loading slow endpoint...';
+  fetch(api + '/api/slow-error')
+    .then(function(r) {
+      $('dataStatus').innerHTML = '<span style="color:#dc3545">Slow error returned ' + r.status + '.</span>';
+      log('Slow Error returned ' + r.status + ' (duration captured)', 'ok');
+    }).catch(function() {
+      $('dataStatus').innerHTML = '<span style="color:#dc3545">Slow Error network failure.</span>';
+    });
+});
+
+$('btnXhrPost').addEventListener('click', function() {
+  log('XHR POST clicked — POST /api/xhr-error (500)', 'info');
+  $('dataStatus').innerHTML = 'Sending XHR POST...';
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', api + '/api/xhr-error');
+  xhr.setRequestHeader('Content-Type', 'application/json');
+  xhr.onloadend = function() {
+    $('dataStatus').innerHTML = '<span style="color:#dc3545">XHR POST returned ' + xhr.status + '.</span>';
+    log('XHR POST returned ' + xhr.status, 'ok');
+  };
+  xhr.send(JSON.stringify({ action: 'update', payload: { id: 99, note: 'test body' } }));
+});
+
+// ═══════════════════════════════════════
+// SUCCESS / EDGE CASES — should NOT be captured as errors
+// ═══════════════════════════════════════
+
+$('btnOkData').addEventListener('click', function() {
+  log('OK Request clicked — fetch /api/data (200)', 'info');
+  $('successStatus').innerHTML = 'Requesting...';
+  fetch(api + '/api/data')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      $('successStatus').innerHTML = '<span style="color:#28a745">OK request succeeded: ' + d.data.name + ' (should NOT appear in Error Hunter)</span>';
+      log('OK Request — 200 success (not captured)', 'ok');
+    }).catch(function() {
+      $('successStatus').innerHTML = '<span style="color:#dc3545">OK Request failed unexpectedly.</span>';
+    });
+});
+
+$('btnBigResponse').addEventListener('click', function() {
+  log('Big Response clicked — fetch /api/big-response (200, large body)', 'info');
+  $('successStatus').innerHTML = 'Requesting...';
+  fetch(api + '/api/big-response')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      $('successStatus').innerHTML = '<span style="color:#28a745">Big response succeeded, body length ' + d.data.length + ' (should NOT appear in Error Hunter)</span>';
+      log('Big Response — 200 success (not captured)', 'ok');
+    }).catch(function() {
+      $('successStatus').innerHTML = '<span style="color:#dc3545">Big Response failed.</span>';
+    });
+});
+
+$('btnImage404').addEventListener('click', function() {
+  log('Broken Image clicked — <img> that 404s (resource error)', 'info');
+  $('successStatus').innerHTML = 'Requesting broken image...';
+  var img = document.createElement('img');
+  img.onerror = function() {
+    $('successStatus').innerHTML = '<span style="color:#dc3545">Image failed to load (may surface as a window error).</span>';
+    log('Broken Image — 404 resource error (check Error Hunter)', 'err');
+  };
+  img.src = api + '/api/not-found';
+});
+
+// ═══════════════════════════════════════
+// FORM ACTIONS — user action capture
+// ═══════════════════════════════════════
+
+$('btnSaveForm').addEventListener('click', function() {
+  log('Save clicked — form values: ' + $('roleSelect').value + ', notify=' + $('notifyCheck').checked, 'info');
+  toast('Form saved (user actions captured)', 'ok');
+});
+
 // ═══════════════════════════════════════
 // DIRECT ERROR TRIGGERS
 // ═══════════════════════════════════════
@@ -242,6 +353,18 @@ $('btnConsoleLog').addEventListener('click', function() {
   console.log('Dashboard state:', { view: 'admin', theme: 'dark', user: 'admin' });
   log('console.log() with state object', 'info');
   toast('Console log sent (check ring buffer)', 'info');
+});
+
+$('btnConsoleInfo').addEventListener('click', function() {
+  console.info('Dashboard info:', { build: 'v1.2.3', env: 'staging' });
+  log('console.info() with build metadata', 'info');
+  toast('Console info sent (check ring buffer)', 'info');
+});
+
+$('btnConsoleDebug').addEventListener('click', function() {
+  console.debug('Dashboard debug:', { perf: { tti: 1200, fcp: 400 } });
+  log('console.debug() with perf data', 'info');
+  toast('Console debug sent (check ring buffer)', 'info');
 });
 
 $('btnThrow').addEventListener('click', function() {
