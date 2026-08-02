@@ -13,7 +13,7 @@
 - **Network Error Capture** — Intercepts `fetch` and `XMLHttpRequest` for requests returning 4xx/5xx status codes or network failures, including request duration, request body, and response snippet.
 - **Ignore Rules** — Add substring rules (match on message, URL, or either) to block known third-party noise at capture. Errors matching a rule are never stored and never counted in the badge; a counter shows how many were blocked. Click ⛔ on any error to ignore similar ones.
 - **Per-Tab Filtering** — When errors come from multiple tabs, filter the list per tab with the dropdown in the summary row.
-- **Start / Stop Monitoring** — Click **Start Monitoring** to begin capturing; click **Stop Monitoring** to clear all captured errors and stop interception.
+- **Start / Stop Monitoring** — Click **Start Monitoring** to begin capturing; click **Stop Monitoring** to stop interception. Captured errors are kept until you click **Clear**.
 - **Badge Indicator** — Red badge on the extension icon showing the current error count at a glance.
 - **Filter Tabs** — Filter errors by type: All, Console, or Network.
 - **Expand / Collapse Details** — Click any error to expand and view stack traces, full URLs, timestamps, and HTTP status codes.
@@ -35,7 +35,7 @@
 3. Click **Start Monitoring**
 4. Interact with the application normally
 5. Errors will appear in the popup list in real-time
-6. Click **Stop Monitoring** to clear all captured errors and stop interception
+6. Click **Stop Monitoring** to stop interception (errors stay until you click **Clear**)
 7. Use the filter tabs to view Console errors or Network errors separately
 8. Click individual errors to expand and view full details
 9. Click the 📋 button to copy a single error's details

@@ -113,7 +113,7 @@ function runTests() {
 
   test('generateBugReport includes heading and error count', () => {
     const _generateBugReport = extractFn(src, 'generateBugReport');
-    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel);
+    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel, () => null);
     const errors = [
       { type: 'console', level: 'error', message: 'test error', timestamp: Date.now(), url: 'https://example.com/script.js' }
     ];
@@ -125,7 +125,7 @@ function runTests() {
 
   test('generateBugReport includes network error details', () => {
     const _generateBugReport = extractFn(src, 'generateBugReport');
-    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel);
+    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel, () => null);
     const errors = [
       { type: 'network', message: 'POST failed', timestamp: Date.now(), url: 'https://api.example.com/data', status: 500, statusText: 'Internal Server Error', method: 'POST' }
     ];
@@ -137,7 +137,7 @@ function runTests() {
 
   test('generateBugReport includes network payload details', () => {
     const _generateBugReport = extractFn(src, 'generateBugReport');
-    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel);
+    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel, () => null);
     const errors = [
       { type: 'network', message: 'POST failed', timestamp: Date.now(), url: 'https://api.example.com/login', status: 401, statusText: 'Unauthorized', method: 'POST', duration: 1200, requestBody: '{"username":"admin"}', responseText: '{"error":"bad creds"}' }
     ];
@@ -155,7 +155,7 @@ function runTests() {
 
   test('generateBugReport includes stack trace', () => {
     const _generateBugReport = extractFn(src, 'generateBugReport');
-    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel);
+    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel, () => null);
     const errors = [
       { type: 'exception', message: 'TypeError: x is not a function', timestamp: Date.now(), stack: 'TypeError: x is not a function\n    at Object.<anonymous> (app.js:10:5)' }
     ];
@@ -167,12 +167,20 @@ function runTests() {
 
   test('generateBugReport includes occurrence count', () => {
     const _generateBugReport = extractFn(src, 'generateBugReport');
-    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel);
+    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel, () => null);
     const errors = [
       { type: 'console', level: 'error', message: 'repeated error', timestamp: Date.now(), count: 5 }
     ];
     const report = generateBugReport(errors);
     assert.ok(report.includes('**Occurrences:** 5'));
+  });
+
+  test('generateBugReport includes Tab line when a tab is selected', () => {
+    const _generateBugReport = extractFn(src, 'generateBugReport');
+    const generateBugReport = (errors, pageUrl) => _generateBugReport(errors, pageUrl, getTypeLabel, () => 'Login page');
+    const errors = [{ type: 'console', level: 'error', message: 'boom', timestamp: Date.now() }];
+    const report = generateBugReport(errors);
+    assert.ok(report.includes('**Tab:** Login page'));
   });
 
   test('popup includes ignore rule UI and handlers', () => {
@@ -197,6 +205,87 @@ function runTests() {
   test('copy and ignore buttons use unfiltered error index', () => {
     const copyLine = src.split('\n').find(l => l.includes('copy-btn"'));
     assert.ok(copyLine.includes('origIndex'), 'copy-btn must use origIndex, not filtered index');
+  });
+
+  // ── Behavioral tests: execute extracted logic with injected globals ──
+  const getFilteredErrors = extractFn(src, 'getFilteredErrors');
+
+  function runGetFilteredErrors(errors, currentFilter, currentTab, searchText) {
+    const f = new Function('errors', 'currentFilter', 'currentTab', 'searchText', 'return ' + getFilteredErrors)
+      (errors, currentFilter, currentTab, searchText);
+    return f(errors, currentFilter, currentTab, searchText);
+  }
+
+  test('getFilteredErrors: applies type filter', () => {
+    const errors = [
+      { type: 'console', level: 'error', message: 'a', tabId: 1 },
+      { type: 'network', message: 'b', tabId: 1 }
+    ];
+    const out = runGetFilteredErrors(errors, 'network', '', '');
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0].type, 'network');
+  });
+
+  test('getFilteredErrors: warning filter only keeps level warn', () => {
+    const errors = [
+      { type: 'console', level: 'error', message: 'a', tabId: 1 },
+      { type: 'console', level: 'warn', message: 'b', tabId: 1 }
+    ];
+    const out = runGetFilteredErrors(errors, 'warning', '', '');
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0].level, 'warn');
+  });
+
+  test('getFilteredErrors: tab filter narrows to one tab', () => {
+    const errors = [
+      { type: 'console', level: 'error', message: 'a', tabId: 1 },
+      { type: 'console', level: 'error', message: 'b', tabId: 2 }
+    ];
+    const out = runGetFilteredErrors(errors, 'all', '2', '');
+    assert.strictEqual(out.length, 1);
+    assert.strictEqual(out[0].tabId, 2);
+  });
+
+  test('getFilteredErrors: search matches message, url, or status', () => {
+    const errors = [
+      { type: 'network', message: 'Server error', url: 'https://api.example.com/login', status: 500 },
+      { type: 'console', level: 'error', message: 'TypeError: x', url: 'https://site.com/a.js' }
+    ];
+    assert.strictEqual(runGetFilteredErrors(errors, 'all', '', '500').length, 1);
+    assert.strictEqual(runGetFilteredErrors(errors, 'all', '', 'example.com').length, 1);
+    assert.strictEqual(runGetFilteredErrors(errors, 'all', '', 'typeerror').length, 1);
+    assert.strictEqual(runGetFilteredErrors(errors, 'all', '', 'nothing').length, 0);
+  });
+
+  const getTabLabels = extractFn(src, 'getTabLabels');
+  const truncateUrl = extractFn(src, 'truncateUrl');
+
+  function runGetTabLabels(errors) {
+    const f = new Function('errors', 'truncateUrl', 'return ' + getTabLabels)(errors, truncateUrl);
+    return f(errors, truncateUrl);
+  }
+
+  test('getTabLabels: unique labels stay plain', () => {
+    const labels = runGetTabLabels([
+      { type: 'console', tabId: 1, tabUrl: 'https://site.com/a' },
+      { type: 'console', tabId: 2, tabUrl: 'https://other.com/b' }
+    ]);
+    assert.strictEqual(labels.get('1'), 'site.com/a');
+    assert.strictEqual(labels.get('2'), 'other.com/b');
+  });
+
+  test('getTabLabels: colliding labels get tab id suffix', () => {
+    const labels = runGetTabLabels([
+      { type: 'console', tabId: 1, tabUrl: 'https://site.com/app' },
+      { type: 'console', tabId: 2, tabUrl: 'https://site.com/app' }
+    ]);
+    assert.ok(labels.get('1').endsWith('(tab 1)'));
+    assert.ok(labels.get('2').endsWith('(tab 2)'));
+  });
+
+  test('getTabLabels: ignores errors without tabId', () => {
+    const labels = runGetTabLabels([{ type: 'console', message: 'no tab' }]);
+    assert.strictEqual(labels.size, 0);
   });
 
   const failed = results.filter(r => !r.passed);

@@ -33,7 +33,7 @@ async function runAll() {
 
     try {
       const testModule = require(modulePath);
-      const result = testModule.runTests();
+      const result = await testModule.runTests();
 
       overall.total += result.results.length;
       overall.passed += result.results.filter(r => r.passed).length;

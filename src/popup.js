@@ -121,7 +121,7 @@ function setupEventListeners() {
       e.stopPropagation();
       const index = parseInt(ignoreBtn.dataset.index);
       const error = errors[index];
-      if (error) addRule(error.message, 'message');
+      if (error) addRule(error.type === 'network' ? error.url : error.message, error.type === 'network' ? 'url' : 'message');
       return;
     }
     const errorItem = e.target.closest('.error-item');
@@ -238,7 +238,7 @@ function renderRules() {
     ? `Ignore rules (${ignoreRules.length})`
     : 'Ignore rules';
   rulesBlocked.textContent = blockedCount > 0
-    ? `${blockedCount} error${blockedCount !== 1 ? 's' : ''} blocked this session`
+    ? `${blockedCount} error${blockedCount !== 1 ? 's' : ''} blocked`
     : '';
   if (ignoreRules.length === 0) {
     rulesList.innerHTML = `<div class="rules-empty">No rules. Click ⛔ on an error to ignore it.</div>`;
@@ -287,14 +287,26 @@ async function removeRule(id) {
   }
 }
 
-// Populate the per-tab filter dropdown from captured errors
-function updateTabFilter() {
+// tabId (string) -> display label, with collision disambiguation
+function getTabLabels() {
   const tabs = new Map();
   for (const e of errors) {
     if (e.tabId != null && !tabs.has(String(e.tabId))) {
       tabs.set(String(e.tabId), truncateUrl(e.tabUrl || 'Tab ' + e.tabId));
     }
   }
+  // Append the tab id to colliding labels so tabs stay distinguishable
+  const counts = new Map();
+  for (const label of tabs.values()) counts.set(label, (counts.get(label) || 0) + 1);
+  for (const [id, label] of tabs) {
+    if (counts.get(label) > 1) tabs.set(id, `${label} (tab ${id})`);
+  }
+  return tabs;
+}
+
+// Populate the per-tab filter dropdown from captured errors
+function updateTabFilter() {
+  const tabs = getTabLabels();
   // Preserve the current selection if that tab still has errors
   if (currentTab !== '' && !tabs.has(currentTab)) currentTab = '';
   let html = '<option value="">All tabs</option>';
@@ -303,6 +315,12 @@ function updateTabFilter() {
   }
   tabFilter.innerHTML = html;
   tabFilter.hidden = tabs.size < 2;
+}
+
+// Label of the currently selected tab filter, or null when "All tabs"
+function getCurrentTabLabel() {
+  if (currentTab === '') return null;
+  return getTabLabels().get(currentTab) || null;
 }
 
 // ── Update UI State ──
@@ -368,7 +386,7 @@ function getFilteredErrors() {
     // Type filter — single pass
     if (currentFilter === 'warning' && e.level !== 'warn') return false;
     if (currentFilter === 'console' && e.type !== 'console' && e.type !== 'exception' && e.type !== 'unhandledrejection') return false;
-    if (currentFilter !== 'all' && e.type !== currentFilter) return false;
+    if (currentFilter !== 'all' && currentFilter !== 'warning' && e.type !== currentFilter) return false;
 
     // Tab filter
     if (currentTab !== '' && String(e.tabId) !== currentTab) return false;
@@ -617,11 +635,12 @@ function exportReport(format) {
 
   const now = new Date();
   const dateStr = now.toISOString().slice(0, 19).replace(/[:-]/g, '');
+  const tabLabel = getCurrentTabLabel();
 
   let content, filename, mimeType;
 
   if (format === 'json') {
-    content = JSON.stringify(filtered, null, 2);
+    content = JSON.stringify({ tab: tabLabel || null, errors: filtered }, null, 2);
     filename = `error-hunter-report-${dateStr}.json`;
     mimeType = 'application/json';
   } else {
@@ -671,7 +690,7 @@ function exportReport(format) {
 </head>
 <body>
   <h1>Error Hunter Report</h1>
-  <p class="meta">Generated: ${escapeHtml(timestamp)}</p>
+  <p class="meta">Generated: ${escapeHtml(timestamp)}${tabLabel ? `<br>Tab: ${escapeHtml(tabLabel)}` : ''}</p>
   <div class="summary">
     <div class="summary-card total"><div class="num">${filtered.length}</div><div class="label">Total Errors</div></div>
     <div class="summary-card console"><div class="num">${consoleCount}</div><div class="label">Console Errors</div></div>
@@ -836,12 +855,14 @@ async function fileBugReport() {
   chrome.tabs.create({ url: URL.createObjectURL(blob) });
 }
 
-function generateBugReport(errors, pageUrl, typeLabelFn) {
+function generateBugReport(errors, pageUrl, typeLabelFn, getTabLabel) {
   const now = new Date();
   const lines = [];
   lines.push('# Error Hunter Bug Report');
   lines.push('');
   lines.push('**Page URL:** ' + (pageUrl || errors[0]?.url || 'N/A') + '  ');
+  const tabLabel = (getTabLabel || getCurrentTabLabel)();
+  if (tabLabel) lines.push('**Tab:** ' + tabLabel + '  ');
   lines.push('**Reported:** ' + now.toLocaleString() + '  ');
   lines.push('**Total Errors:** ' + errors.length);
   lines.push('');

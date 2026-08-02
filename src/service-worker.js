@@ -6,6 +6,9 @@ const STATUS_KEY = 'error_hunter_active';
 const IGNORE_RULES_KEY = 'eh_ignore_rules';
 const BLOCKED_COUNT_KEY = 'eh_blocked_count';
 
+// Max stored errors; oldest are dropped beyond this to stay under storage.session quota
+const MAX_ERRORS = 500;
+
 // Initialize state
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.session.set({ [STATUS_KEY]: false });
@@ -314,6 +317,11 @@ async function handleNewError(error, sender) {
     } else {
       error.count = 1;
       errors.push(error);
+    }
+
+    // Cap: drop oldest beyond MAX_ERRORS
+    if (errors.length > MAX_ERRORS) {
+      errors.splice(0, errors.length - MAX_ERRORS);
     }
 
     await chrome.storage.session.set({ [STORAGE_KEY]: errors });
