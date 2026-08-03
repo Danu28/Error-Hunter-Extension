@@ -9,6 +9,16 @@ const BLOCKED_COUNT_KEY = 'eh_blocked_count';
 // Max stored errors; oldest are dropped beyond this to stay under storage.session quota
 const MAX_ERRORS = 500;
 
+// Serialize storage read-modify-write: concurrent new_error/clear/delete bursts
+// would otherwise race on STORAGE_KEY (each reads the same snapshot) and lose
+// updates. All mutation handlers run exclusively through this mutex.
+let storageMutex = Promise.resolve();
+function runExclusive(fn) {
+  const run = storageMutex.then(fn, fn);
+  storageMutex = run.then(() => {}, () => {});
+  return run;
+}
+
 // Initialize state
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.session.set({ [STATUS_KEY]: false });
@@ -19,7 +29,7 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.action) {
     case 'new_error':
-      handleNewError(message.error, sender).then(() => {
+      runExclusive(() => handleNewError(message.error, sender)).then(() => {
         sendResponse({});
       });
       return true;
@@ -41,7 +51,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'clear_errors':
-      handleClearErrors(sendResponse);
+      runExclusive(() => handleClearErrors(sendResponse));
       return true;
 
     case 'inject_page_world':
@@ -49,7 +59,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
 
     case 'delete_error':
-      handleDeleteError(message, sendResponse);
+      runExclusive(() => handleDeleteError(message, sendResponse));
       return true;
 
     case 'add_ignore_rule':

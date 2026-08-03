@@ -34,6 +34,10 @@ Desktop.ini
 
 # ── Development helpers (not part of source) ──
 serve-test.js
+package.json
+
+# ── Internal agent memory (not extension source) ──
+memory/
 
 # ── Dev loop artifacts (deleted before final push) ──
 .devloop/

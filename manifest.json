@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Error Hunter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Monitor and capture JavaScript console errors and failed network requests on staging builds.",
   "permissions": [
     "storage",

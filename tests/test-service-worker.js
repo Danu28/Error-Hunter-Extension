@@ -254,6 +254,49 @@ async function runTests() {
     assert.ok(!stored.some(e => e.message === 'err0'));
   });
 
+  test('error mutation handlers serialize through runExclusive (no lost updates on bursts)', async () => {
+    const dispatch = src.slice(src.indexOf('chrome.runtime.onMessage.addListener'));
+    assert.ok(dispatch.includes("runExclusive(() => handleNewError("));
+    assert.ok(dispatch.includes("runExclusive(() => handleClearErrors("));
+    assert.ok(dispatch.includes("runExclusive(() => handleDeleteError("));
+  });
+
+  test('runExclusive: concurrent new_error bursts all persist with copy-semantics storage', async () => {
+    // Faithful storage: chrome.storage returns copies on get and stores copies on
+    // set (structured clone), unlike the shared-reference mock above.
+    const data = { session: {} };
+    const faithfulStorage = {
+      local: { get: async () => ({}), set: async () => {} },
+      session: {
+        get: async (key) => ({ [key]: JSON.parse(JSON.stringify(data.session[key] ?? [])) }),
+        set: async (obj) => {
+          for (const k of Object.keys(obj)) data.session[k] = JSON.parse(JSON.stringify(obj[k]));
+        }
+      }
+    };
+    const handler = new Function(
+      'chrome', 'STORAGE_KEY', 'BLOCKED_COUNT_KEY', 'MAX_ERRORS',
+      'isIgnoredError', 'updateBadge', 'return ' + handleNewError
+    )({ storage: faithfulStorage }, 'error_hunter_errors', 'eh_blocked_count', 500, async () => false, async () => {});
+    // Same mutex pattern as service-worker.js
+    let mutex = Promise.resolve();
+    const runExclusive = (fn) => {
+      const run = mutex.then(fn, fn);
+      mutex = run.then(() => {}, () => {});
+      return run;
+    };
+    const N = 10;
+    await Promise.all(Array.from({ length: N }, (_, i) =>
+      runExclusive(() => handler(
+        { type: 'network', message: 'err-' + i, url: 'https://x/' + i, timestamp: i },
+        { tab: { id: 1 } }
+      ))
+    ));
+    const stored = data.session['error_hunter_errors'];
+    assert.strictEqual(stored.length, N, 'all burst errors must persist');
+    assert.deepStrictEqual(stored.map(e => e.message).sort(), Array.from({ length: N }, (_, i) => 'err-' + i).sort());
+  });
+
   const broadcastToTabs = extractFn(src, 'broadcastToTabs');
 
   test('broadcastToTabs: returns tabs where sendMessage failed, skips non-http tabs', async () => {
