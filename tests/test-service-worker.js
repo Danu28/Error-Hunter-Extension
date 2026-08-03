@@ -74,6 +74,12 @@ async function runTests() {
     assert.ok(fnBody.includes("_patchConsole('warn'"));
   });
 
+  test('injectPageWorldErrorCapture truncates console messages at capture', () => {
+    const fnStart = src.indexOf('function _patchConsole');
+    const fnBody = src.slice(fnStart);
+    assert.ok(fnBody.includes('_ehTruncate(message, 2000)'));
+  });
+
   test('injectPageWorldErrorCapture dispatches all 5 custom event types', () => {
     const fnStart = src.indexOf('function injectPageWorldErrorCapture');
     const fnBody = src.slice(fnStart);
@@ -151,6 +157,16 @@ async function runTests() {
   // ── Behavioral tests: execute extracted logic with mocks ──
   const matchesRule = extractFn(src, 'matchesRule');
   const handleNewError = extractFn(src, 'handleNewError');
+  const isIgnoredError = extractFn(src, 'isIgnoredError');
+  const ensureRulesCache = extractFn(src, 'ensureRulesCache');
+  const invalidateIgnoreRuleCache = extractFn(src, 'invalidateIgnoreRuleCache');
+
+  test('invalidateIgnoreRuleCache clears the cached rules', () => {
+    const cache = { rules: 'stale' };
+    const fn = new Function('ignoreRulesCache', 'return ' + invalidateIgnoreRuleCache)(cache);
+    fn();
+    assert.strictEqual(cache.rules, null);
+  });
 
   test('matchesRule: message match, case-insensitive', () => {
     const err = { message: 'TypeError: boom', url: 'https://example.com/a.js' };
@@ -176,6 +192,32 @@ async function runTests() {
     const err = { message: 'boom', url: 'https://example.com/a.js' };
     assert.strictEqual(matchesRule(err, { matchOn: 'any', pattern: '' }), false);
     assert.strictEqual(matchesRule(err, { matchOn: 'message', pattern: undefined }), false);
+  });
+
+  test('isIgnoredError: caches rules after first check (single storage read)', async () => {
+    const gets = [];
+    const chrome = {
+      storage: { local: { get: async (key) => { gets.push(key); return { [key]: [{ pattern: 'boom', matchOn: 'message' }] }; } } }
+    };
+    const cache = { rules: null };
+    const ensure = new Function('chrome', 'IGNORE_RULES_KEY', 'ignoreRulesCache', 'return ' + ensureRulesCache)(chrome, 'eh_ignore_rules', cache);
+    const check = new Function('chrome', 'IGNORE_RULES_KEY', 'matchesRule', 'ensureRulesCache', 'ignoreRulesCache', 'return ' + isIgnoredError)(chrome, 'eh_ignore_rules', matchesRule, ensure, cache);
+    assert.strictEqual(await check({ message: 'boom', url: 'x' }), true);
+    assert.strictEqual(await check({ message: 'nope', url: 'x' }), false);
+    assert.strictEqual(gets.length, 1, 'second check must reuse the cached rules');
+  });
+
+  test('isIgnoredError: cache invalidation reloads rules from storage', async () => {
+    let rules = [{ pattern: 'old', matchOn: 'message' }];
+    const chrome = { storage: { local: { get: async () => ({ eh_ignore_rules: rules }) } } };
+    const cache = { rules: null };
+    const ensure = new Function('chrome', 'IGNORE_RULES_KEY', 'ignoreRulesCache', 'return ' + ensureRulesCache)(chrome, 'eh_ignore_rules', cache);
+    const check = new Function('chrome', 'IGNORE_RULES_KEY', 'matchesRule', 'ensureRulesCache', 'ignoreRulesCache', 'return ' + isIgnoredError)(chrome, 'eh_ignore_rules', matchesRule, ensure, cache);
+    assert.strictEqual(await check({ message: 'old', url: 'x' }), true);
+    rules = [{ pattern: 'new', matchOn: 'message' }];
+    cache.rules = null; // what handleAddIgnoreRule/handleRemoveIgnoreRule do after set()
+    assert.strictEqual(await check({ message: 'old', url: 'x' }), false);
+    assert.strictEqual(await check({ message: 'new', url: 'x' }), true);
   });
 
   test('handleNewError: deduplicates same error+tab, increments count', async () => {
@@ -295,6 +337,41 @@ async function runTests() {
     const stored = data.session['error_hunter_errors'];
     assert.strictEqual(stored.length, N, 'all burst errors must persist');
     assert.deepStrictEqual(stored.map(e => e.message).sort(), Array.from({ length: N }, (_, i) => 'err-' + i).sort());
+  });
+
+  test('handleNewError: passes the full errors array to updateBadge', async () => {
+    const { storage, data } = createStorageMock();
+    let badgeArg = null;
+    const handler = new Function(
+      'chrome', 'STORAGE_KEY', 'BLOCKED_COUNT_KEY', 'MAX_ERRORS',
+      'isIgnoredError', 'updateBadge', 'return ' + handleNewError
+    )({ storage }, 'error_hunter_errors', 'eh_blocked_count', 500, async () => false, (errors) => { badgeArg = errors; });
+    await handler({ type: 'exception', message: 'boom', url: 'u', timestamp: 1 }, { tab: { id: 1 } });
+    assert.ok(Array.isArray(badgeArg));
+    assert.strictEqual(badgeArg.length, 1);
+    assert.strictEqual(data.session['error_hunter_errors'].length, 1);
+  });
+
+  const updateBadge = extractFn(src, 'updateBadge');
+  const getBadgeColor = extractFn(src, 'getBadgeColor');
+
+  test('updateBadge: computes color from passed errors without re-reading storage', async () => {
+    const calls = { text: null, color: null, storageReads: 0 };
+    const chrome = {
+      action: {
+        setBadgeText: async (o) => { calls.text = o.text; },
+        setBadgeBackgroundColor: async (o) => { calls.color = o.color; }
+      },
+      storage: { session: { get: async () => { calls.storageReads++; return {}; } } }
+    };
+    const fn = new Function('chrome', 'STORAGE_KEY', 'getBadgeColor', 'return ' + updateBadge)(chrome, 'error_hunter_errors', getBadgeColor);
+    await fn([]);
+    assert.strictEqual(calls.text, '');
+    assert.strictEqual(calls.color, null);
+    await fn([{ type: 'exception', message: 'x', timestamp: 1 }]);
+    assert.strictEqual(calls.text, '1');
+    assert.strictEqual(calls.color, '#dc3545');
+    assert.strictEqual(calls.storageReads, 0, 'color must come from the passed array, not storage');
   });
 
   const broadcastToTabs = extractFn(src, 'broadcastToTabs');

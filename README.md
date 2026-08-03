@@ -50,9 +50,10 @@
 | Permission      | Purpose                                                      |
 |-----------------|--------------------------------------------------------------|
 | `storage`       | Session storage for persisting errors across page navigations |
-| `tabs`          | Accessing tab information for error context                   |
 | `scripting`     | Content script injection for error interception               |
 | `<all_urls>`    | Intercepting network requests on all URLs                     |
+
+> Least-privilege note: reading `tab.url` is covered by the `<all_urls>` host permission, so the extension no longer requests the `tabs` permission (which would show Chrome's "Read your browsing history" warning).
 
 ## Project Structure
 
@@ -69,7 +70,8 @@ Error-Hunter/
 │   ├── service-worker.js      # Service worker: badge, storage, messaging
 │   ├── popup.html             # Popup UI structure
 │   ├── popup.css              # Popup dark theme styles
-│   └── popup.js               # Popup logic and rendering
+│   ├── popup.js               # Popup logic and rendering
+│   └── bug-report.js          # "Edit Report" tab: copy button (external script, CSP-safe)
 └── tests/
     ├── run-tests.js           # Test runner (orchestrates all tests)
     ├── test-content.js        # Tests: content script utilities

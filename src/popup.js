@@ -358,9 +358,11 @@ function renderErrors() {
   if (parts.length > 0) summaryText += ` (${parts.join(', ')})`;
   errorCount.textContent = summaryText;
 
-  // Skip DOM rebuild if filtered list hasn't changed
+  // Skip DOM rebuild if filtered list hasn't changed.
+  // searchText is in the key: two searches with identical aggregate stats and
+  // timestamps would otherwise share a key and leave a stale list on screen.
   const lastTimestamp = filtered.length > 0 ? filtered[filtered.length - 1].timestamp : '';
-  const key = filtered.length + ':' + consoleCount + ':' + warnCount + ':' + networkCount + ':' + lastTimestamp + ':' + sortAscending + ':' + currentTab;
+  const key = filtered.length + ':' + consoleCount + ':' + warnCount + ':' + networkCount + ':' + lastTimestamp + ':' + sortAscending + ':' + currentTab + ':' + searchText;
   if (key === lastRenderKey) return;
   lastRenderKey = key;
 
@@ -850,17 +852,9 @@ async function fileBugReport() {
     + '  textarea{width:100%;height:calc(100vh - 100px);background:#252526;color:#ccc;border:1px solid #3c3c3c;border-radius:6px;padding:16px;font-family:\'Consolas\',monospace;font-size:13px;line-height:1.5;resize:vertical;outline:none}'
     + '  textarea:focus{border-color:#3794ff}'
     + '</style>\n</head>\n<body>\n<h1>Bug Report</h1>\n<div class="bar">\n'
-    + '<button class="btn btn-copy" onclick="copyReport()">Copy to Clipboard</button>\n</div>\n'
+    + '<button class="btn btn-copy" id="copyReportBtn">Copy to Clipboard</button>\n</div>\n'
     + '<textarea id="r" spellcheck="false">' + escapeHtml(markdown) + '</textarea>\n'
-    + '<script>\nfunction copyReport(){\n'
-    + '  var t=document.getElementById(\'r\');\n'
-    + '  t.select();\n'
-    + '  navigator.clipboard.writeText(t.value).then(function(){\n'
-    + '    var b=document.querySelector(\'.btn-copy\');\n'
-    + '    b.textContent=\'Copied!\';\n'
-    + '    setTimeout(function(){b.textContent=\'Copy to Clipboard\';},2000);\n'
-    + '  });\n'
-    + '}\n<\/script>\n</body>\n</html>';
+    + '<script src="' + chrome.runtime.getURL('src/bug-report.js') + '"><\/script>\n</body>\n</html>';
 
   const blob = new Blob([html], { type: 'text/html' });
   chrome.tabs.create({ url: URL.createObjectURL(blob) });

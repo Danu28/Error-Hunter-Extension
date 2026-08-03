@@ -32,11 +32,13 @@ function runTests() {
     assert.ok(typeof manifest.description === 'string' && manifest.description.length > 0);
   });
 
-  test('permissions include storage, tabs, scripting', () => {
+  test('permissions are least-privilege: storage + scripting, no redundant tabs', () => {
     assert.ok(Array.isArray(manifest.permissions));
     assert.ok(manifest.permissions.includes('storage'));
-    assert.ok(manifest.permissions.includes('tabs'));
     assert.ok(manifest.permissions.includes('scripting'));
+    // `tabs` was removed as redundant: tab.url is already readable through the
+    // <all_urls> host permission. Keep it gone to avoid the browsing-history warning.
+    assert.ok(!manifest.permissions.includes('tabs'));
   });
 
   test('host_permissions includes <all_urls>', () => {

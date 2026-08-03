@@ -114,6 +114,7 @@ function injectPageWorldErrorCapture() {
         return String(a);
       }).join(' ');
       if (extra.level === 'warn') message = '(warning) ' + message;
+      message = _ehTruncate(message, 2000);
       var detail = { message: message };
       if (extra.level) detail.level = extra.level;
       var stack = null;
@@ -306,12 +307,36 @@ function matchesRule(error, rule) {
   return msg.includes(pattern) || url.includes(pattern);
 }
 
+// Ignore rules cached in memory. Every new_error is checked against them, so
+// reading storage.local per error was the hottest I/O path. storage.local stays
+// the source of truth (persists across sessions); the cache is loaded lazily on
+// the first check and invalidated when a rule is added or removed.
+const ignoreRulesCache = { rules: null };
+
+function invalidateIgnoreRuleCache() {
+  ignoreRulesCache.rules = null;
+}
+
+// Keep the cache honest when rules change from ANY writer, not just our
+// add/remove handlers — e.g. the E2E harness clears storage directly
+// (resetIgnoreState) between scenarios. Without this, a stale rule from a
+// previous scenario would silently keep blocking errors.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && IGNORE_RULES_KEY in changes) invalidateIgnoreRuleCache();
+});
+
+async function ensureRulesCache() {
+  if (ignoreRulesCache.rules === null) {
+    const result = await chrome.storage.local.get(IGNORE_RULES_KEY);
+    ignoreRulesCache.rules = result[IGNORE_RULES_KEY] || [];
+  }
+}
+
 // Check if an error matches any user-configured ignore rule
 async function isIgnoredError(error) {
   try {
-    const result = await chrome.storage.local.get(IGNORE_RULES_KEY);
-    const rules = result[IGNORE_RULES_KEY] || [];
-    return rules.some(rule => matchesRule(error, rule));
+    await ensureRulesCache();
+    return ignoreRulesCache.rules.some(rule => matchesRule(error, rule));
   } catch (err) {
     console.error('[Error Hunter] isIgnoredError FAILED:', err.message);
     return false;
@@ -359,7 +384,7 @@ async function handleNewError(error, sender) {
     }
 
     await chrome.storage.session.set({ [STORAGE_KEY]: errors });
-    await updateBadge(errors.length);
+    await updateBadge(errors);
   } catch (err) {
     console.error('[Error Hunter] Failed to store error:', err);
   }
@@ -456,7 +481,7 @@ async function handleDeleteError(message, sendResponse) {
     if (message.index >= 0 && message.index < errors.length) {
       errors.splice(message.index, 1);
       await chrome.storage.session.set({ [STORAGE_KEY]: errors });
-      await updateBadge(errors.length);
+      await updateBadge(errors);
     }
     sendResponse({ success: true, errors });
   } catch (err) {
@@ -479,11 +504,12 @@ async function handleAddIgnoreRule(message, sendResponse) {
     const rules = result[IGNORE_RULES_KEY] || [];
     rules.push(rule);
     await chrome.storage.local.set({ [IGNORE_RULES_KEY]: rules });
+    invalidateIgnoreRuleCache();
 
     const sResult = await chrome.storage.session.get(STORAGE_KEY);
     const errors = (sResult[STORAGE_KEY] || []).filter(e => !matchesRule(e, rule));
     await chrome.storage.session.set({ [STORAGE_KEY]: errors });
-    await updateBadge(errors.length);
+    await updateBadge(errors);
 
     sendResponse({ success: true, rules, errors });
   } catch (err) {
@@ -498,6 +524,7 @@ async function handleRemoveIgnoreRule(message, sendResponse) {
     const result = await chrome.storage.local.get(IGNORE_RULES_KEY);
     const rules = (result[IGNORE_RULES_KEY] || []).filter(r => r.id !== message.id);
     await chrome.storage.local.set({ [IGNORE_RULES_KEY]: rules });
+    invalidateIgnoreRuleCache();
     sendResponse({ success: true, rules });
   } catch (err) {
     console.error('[Error Hunter] handleRemoveIgnoreRule FAILED:', err.message);
@@ -507,19 +534,16 @@ async function handleRemoveIgnoreRule(message, sendResponse) {
 
 // Broadcast an action (start/stop) to all http tabs.
 // Returns the ids of tabs that have no live content script (sendMessage failed).
+// Messages are sent in parallel — waiting on each tab serially made Start/Stop
+// O(tabs) round-trips.
 async function broadcastToTabs(action) {
-  const failed = [];
   const tabs = await chrome.tabs.query({});
-  for (const tab of tabs) {
-    if (tab.url && tab.url.startsWith('http')) {
-      try {
-        await chrome.tabs.sendMessage(tab.id, { action });
-      } catch (e) {
-        failed.push(tab.id);
-      }
-    }
-  }
-  return failed;
+  const results = await Promise.allSettled(
+    tabs
+      .filter(tab => tab.url && tab.url.startsWith('http'))
+      .map(tab => chrome.tabs.sendMessage(tab.id, { action }).then(() => null, () => tab.id))
+  );
+  return results.filter(r => r.value != null).map(r => r.value);
 }
 
 // Pick badge color based on most severe error type in storage
@@ -538,13 +562,13 @@ function getBadgeColor(errors) {
   return '#dc3545'; // default red
 }
 
-// Update the badge with current error count and color
-async function updateBadge(count) {
-  const text = count > 0 ? String(count) : '';
+// Update the badge with current error count and color.
+// Receives the errors array so the color is computed from data already in
+// hand — no extra storage read per error.
+async function updateBadge(errors) {
+  const text = errors.length > 0 ? String(errors.length) : '';
   await chrome.action.setBadgeText({ text: text });
-  if (count > 0) {
-    const result = await chrome.storage.session.get(STORAGE_KEY);
-    const errors = result[STORAGE_KEY] || [];
+  if (errors.length > 0) {
     const color = getBadgeColor(errors);
     await chrome.action.setBadgeBackgroundColor({ color: color });
   }

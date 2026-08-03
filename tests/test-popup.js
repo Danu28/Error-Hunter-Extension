@@ -220,6 +220,24 @@ function runTests() {
     assert.ok(src.includes("action: 'get_errors'"));
   });
 
+  test('fileBugReport: bug report tab uses an external script (MV3 CSP blocks inline)', () => {
+    const start = src.indexOf('async function fileBugReport');
+    const end = src.indexOf('function generateBugReport');
+    const body = src.slice(start, end);
+    assert.ok(body.includes('id="copyReportBtn"'));
+    assert.ok(body.includes("chrome.runtime.getURL('src/bug-report.js')"));
+    assert.ok(!body.includes('onclick="copyReport()"'));
+    assert.ok(!body.includes('<script>\nfunction copyReport'));
+  });
+
+  test('src/bug-report.js exists and wires the copy button via addEventListener (no inline script)', () => {
+    const script = fs.readFileSync(path.join(__dirname, '..', 'src', 'bug-report.js'), 'utf-8');
+    assert.ok(script.includes("getElementById('copyReportBtn')"));
+    assert.ok(script.includes('addEventListener'));
+    assert.ok(!script.includes('</script'), 'must be a plain JS file, not an inline <script> block');
+    new Function(script); // valid JS
+  });
+
   test('copy and ignore buttons use unfiltered error index', () => {
     const copyLine = src.split('\n').find(l => l.includes('copy-btn"'));
     assert.ok(copyLine.includes('origIndex'), 'copy-btn must use origIndex, not filtered index');
@@ -304,6 +322,37 @@ function runTests() {
   test('getTabLabels: ignores errors without tabId', () => {
     const labels = runGetTabLabels([{ type: 'console', message: 'no tab' }]);
     assert.strictEqual(labels.size, 0);
+  });
+
+  test('renderErrors: changing search re-renders even when aggregate stats match', () => {
+    const renderErrorsSrc = extractFn(src, 'renderErrors').toString();
+    const makeRenderer = new Function('renderErrorsSrc', `
+      return function () {
+        let lastRenderKey = '';
+        let sortAscending = false;
+        let currentTab = '';
+        let searchText = '';
+        const allErrors = [
+          { type: 'console', level: 'error', message: 'aaa boom', url: 'u', timestamp: 100 },
+          { type: 'console', level: 'error', message: 'bbb boom', url: 'u', timestamp: 100 }
+        ];
+        const errorCount = { textContent: '' };
+        const errorList = { innerHTML: '', scrollTop: 0, clientHeight: 100, scrollHeight: 100, querySelectorAll: () => [] };
+        const expandToggle = { textContent: '' };
+        const getFilteredErrors = () => allErrors.filter(e => (e.message || '').toLowerCase().includes(searchText));
+        const buildErrorItem = (e) => '<div class="err">' + e.message + '</div>';
+        ${renderErrorsSrc}
+        return { render: renderErrors, setSearch: (s) => { searchText = s; }, list: errorList, key: () => lastRenderKey };
+      }
+    `);
+    const renderer = makeRenderer(renderErrorsSrc)();
+    renderer.setSearch('aaa');
+    renderer.render();
+    assert.ok(renderer.list.innerHTML.includes('aaa boom'));
+    renderer.setSearch('bbb');
+    renderer.render();
+    assert.ok(renderer.list.innerHTML.includes('bbb boom'), 'search change must rebuild the list');
+    assert.ok(!renderer.list.innerHTML.includes('aaa boom'));
   });
 
   const failed = results.filter(r => !r.passed);

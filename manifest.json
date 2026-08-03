@@ -5,7 +5,6 @@
   "description": "Monitor and capture JavaScript console errors and failed network requests on staging builds.",
   "permissions": [
     "storage",
-    "tabs",
     "scripting"
   ],
   "host_permissions": [
