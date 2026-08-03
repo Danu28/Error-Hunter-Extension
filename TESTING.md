@@ -138,6 +138,22 @@ Before reporting a finding, rule out session state:
 
 Clean-sequence retest: reload page → Start → Load Users → Load Orders → XHR POST → check **Network** filter. All three should be there (fetch 404, XHR 404, XHR 500).
 
+## Automated E2E suite (`e2e/`)
+
+The 13 scenarios above are also automated by a zero-dependency CDP harness in `e2e/`, driven through Chrome for Testing (auto-downloaded to `e2e/.cache/` on first run).
+
+```
+node e2e/run.js                    # headless, all 13 scenarios
+node e2e/run.js --windowed         # visible browser (slower, real click timing)
+node e2e/run.js --only "s02 network capture"   # one scenario by exact name
+node e2e/run.js --keep             # leave the browser open on port 9355
+```
+
+- Scenarios live in `e2e/scenarios/s01-*.js` … `s13-*.js`; each is self-contained and starts from a clean page/state.
+- `e2e/harness.js` is the generic extension-agnostic harness (launch, CDP targets, storage, downloads, assertions). `e2e/error-hunter.js` holds Error Hunter-specific drivers.
+- Uses the same `serve-test.js` server (spawned automatically on port 9355).
+- `Ctrl+Shift+E` is not exercised here: CDP cannot synthesize `chrome.commands` shortcuts, so scenarios toggle monitoring via the popup Start button.
+
 ## Done
 
 When all scenarios above behave as described, the extension passes the manual QA round. Log any deviations as findings — the extension code itself should not change during testing.

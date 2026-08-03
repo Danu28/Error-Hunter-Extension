@@ -41,3 +41,6 @@ memory/
 
 # ── Dev loop artifacts (deleted before final push) ──
 .devloop/
+
+# ── E2E harness downloads (Chrome for Testing binary cache) ──
+e2e/.cache/
